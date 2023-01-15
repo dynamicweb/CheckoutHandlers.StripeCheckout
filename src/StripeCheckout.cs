@@ -173,7 +173,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             {
                 if (user != null)
                 {
-                    var tokens = Services.PaymentCard.GetByUserId(user.ID, order.PaymentMethodId, order.LanguageId);
+                    var tokens = Services.PaymentCard.GetByUserId(user.ID, order.PaymentMethodId);
                     if (tokens.Any())
                     {
                         customerId = tokens.First().Token.Split('|')[0];
@@ -234,7 +234,6 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                     var savedCard = Services.PaymentCard.CreatePaymentCard(
                         user.ID,
                         order.PaymentMethodId,
-                        order.LanguageId,
                         cardName,
                         order.TransactionCardType,
                         order.TransactionCardNumber,
