@@ -744,8 +744,8 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                 {
                     case "Post mode":
                         return new Hashtable {
-                            { "Auto", Translator.Translate("Auto post (does not use the template)") },
-                            { "Template", Translator.Translate("Render template") }
+                            { "Auto", "Auto post (does not use the template)" },
+                            { "Template", "Render template" }
                         };
 
                     case "Language":
