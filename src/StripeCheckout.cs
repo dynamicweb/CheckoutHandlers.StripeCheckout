@@ -26,6 +26,11 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
     ]
     public class StripeCheckout : CheckoutHandler, ISavedCard, IDropDownOptions, IRecurring, IRemotePartialFinalOnlyCapture, ICancelOrder, IFullReturn, IPartialReturn
     {
+        private const string PostTemplateFolder = "eCom7/CheckoutHandler/Stripe/Post";
+        private const string ErrorTemplateFolder = "eCom7/CheckoutHandler/Stripe/Error";
+        private string errorTemplate;
+        private string postTemplate;
+
         private enum ErrorType
         {
             Undefined,
@@ -55,11 +60,25 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         [AddInParameter("Merchant logo"), AddInParameterEditor(typeof(FileManagerEditor), "NewGUI=true; useimagesfolder=true; showfullpath=true; extensions=gif,jpg,png;")]
         public string MerchantLogo { get; set; }
 
-        [AddInParameter("Post template"), AddInParameterEditor(typeof(TemplateParameterEditor), "folder=templates/eCom7/CheckoutHandler/Stripe/Post")]
-        public string PostTemplate { get; set; }
+        [AddInParameter("Post template"), AddInParameterEditor(typeof(TemplateParameterEditor), $"folder=templates/{PostTemplateFolder}")]
+        public string PostTemplate
+        {
+            get
+            {
+                return TemplateHelper.GetTemplateName(postTemplate);
+            }
+            set => postTemplate = value;
+        }
 
-        [AddInParameter("Error template"), AddInParameterEditor(typeof(TemplateParameterEditor), "folder=templates/eCom7/CheckoutHandler/Stripe/Error")]
-        public string ErrorTemplate { get; set; }
+        [AddInParameter("Error template"), AddInParameterEditor(typeof(TemplateParameterEditor), $"folder=templates/{ErrorTemplateFolder}")]
+        public string ErrorTemplate
+        {
+            get
+            {
+                return TemplateHelper.GetTemplateName(errorTemplate);
+            }
+            set => errorTemplate = value;
+        }
 
         [AddInParameter("Capture now"), AddInParameterEditor(typeof(YesNoParameterEditor), "")]
         public bool CaptureNow { get; set; }
@@ -94,7 +113,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         {
             LogEvent(order, "Checkout started");
 
-            var formTemplate = new Template(PostTemplate);
+            var formTemplate = new Template(TemplateHelper.GetTemplatePath(PostTemplate, PostTemplateFolder));
             return RenderPaymentForm(order, formTemplate);
         }
 
@@ -278,7 +297,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                 RedirectToCart(order);
             }
 
-            var errorTemplate = new Template(ErrorTemplate);
+            var errorTemplate = new Template(TemplateHelper.GetTemplatePath(ErrorTemplate, ErrorTemplateFolder));
             errorTemplate.SetTag("CheckoutHandler:ErrorType", errorType.ToString());
             errorTemplate.SetTag("CheckoutHandler:ErrorMessage", msg);
 
@@ -898,7 +917,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             if (RenderInline)
             {
                 LogEvent(order, "Render inline form");
-                var formTemplate = new Template(PostTemplate);
+                var formTemplate = new Template(TemplateHelper.GetTemplatePath(PostTemplate, PostTemplateFolder));
                 return RenderPaymentForm(order, formTemplate);
             }
 
