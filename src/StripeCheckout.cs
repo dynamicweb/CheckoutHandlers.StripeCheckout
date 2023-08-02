@@ -60,7 +60,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         [AddInParameter("Merchant logo"), AddInParameterEditor(typeof(FileManagerEditor), "NewGUI=true; useimagesfolder=true; showfullpath=true; extensions=gif,jpg,png;")]
         public string MerchantLogo { get; set; }
 
-        [AddInParameter("Post template"), AddInParameterEditor(typeof(TemplateParameterEditor), $"folder=templates/{PostTemplateFolder}")]
+        [AddInParameter("Post template"), AddInParameterEditor(typeof(TemplateParameterEditor), $"folder=Templates/{PostTemplateFolder}")]
         public string PostTemplate
         {
             get
@@ -70,7 +70,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             set => postTemplate = value;
         }
 
-        [AddInParameter("Error template"), AddInParameterEditor(typeof(TemplateParameterEditor), $"folder=templates/{ErrorTemplateFolder}")]
+        [AddInParameter("Error template"), AddInParameterEditor(typeof(TemplateParameterEditor), $"folder=Templates/{ErrorTemplateFolder}")]
         public string ErrorTemplate
         {
             get
