@@ -24,7 +24,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         AddInName("Stripe checkout"),
         AddInDescription("Checkout handler for Stripe 1.1")
     ]
-    public class StripeCheckout : CheckoutHandler, ISavedCard, IDropDownOptions, IRecurring, IRemotePartialFinalOnlyCapture, ICancelOrder, IFullReturn, IPartialReturn
+    public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IRecurring, IRemotePartialFinalOnlyCapture, ICancelOrder, IFullReturn, IPartialReturn
     {
         private const string PostTemplateFolder = "eCom7/CheckoutHandler/Stripe/Post";
         private const string ErrorTemplateFolder = "eCom7/CheckoutHandler/Stripe/Error";
@@ -80,13 +80,13 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             set => errorTemplate = value;
         }
 
-        [AddInParameter("Capture now"), AddInParameterEditor(typeof(YesNoParameterEditor), "")]
+        [AddInParameter("Capture now"), AddInParameterEditor(typeof(YesNoParameterEditor), "infoText=Auto-captures a payment when it is authorized. Please note that it is illegal in some countries to capture payment before shipping any physical goods.;")]
         public bool CaptureNow { get; set; }
 
-        [AddInParameter("Render inline form"), AddInParameterEditor(typeof(YesNoParameterEditor), "")]
+        [AddInParameter("Render inline form"), AddInParameterEditor(typeof(YesNoParameterEditor), "infoText=Makes it possible to render this form inline in the checkout flow. Use the Ecom:Cart.PaymentInlineForm tag in the cart flow to render the form inline.;")]
         public bool RenderInline { get; set; }
 
-        [AddInParameter("Test mode"), AddInParameterEditor(typeof(YesNoParameterEditor), "")]
+        [AddInParameter("Test mode"), AddInParameterEditor(typeof(YesNoParameterEditor), "infoText=When checked, test credentials are used – when unchecked, live credentials are used.;")]
         public bool TestMode { get; set; }
 
         #endregion
@@ -158,8 +158,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         private string StateOk(Order order)
         {
             LogEvent(order, "State ok");
-
-            var user = User.GetCurrentUser(PagePermissionLevels.Frontend);
+            var user = UserContext.Current.User;
             var saveUserCard = true;
             var cardId = string.Empty;
             string cardName = Dynamicweb.Context.Current.Request["CardTokenName"];
@@ -755,33 +754,33 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         /// </summary>
         /// <param name="behaviorMode"></param>
         /// <returns>Key-value pairs of settings</returns>
-        public Hashtable GetOptions(string behaviorMode)
+        public IEnumerable<ParameterOption> GetParameterOptions(string parameterName)
         {
             try
             {
-                switch (behaviorMode)
+                switch (parameterName)
                 {
                     case "Post mode":
-                        return new Hashtable {
-                            { "Auto", "Auto post (does not use the template)" },
-                            { "Template", "Render template" }
+                        return new List<ParameterOption> {
+                            new( "Auto", "Auto post (does not use the template)" ),
+                            new( "Template", "Render template" )
                         };
 
                     case "Language":
-                        return new Hashtable {
-                            { "auto", "auto" },
-                            { "zh", "Chinese" },
-                            { "nl", "Dutch" },
-                            { "en", "English" },
-                            { "fr", "French" },
-                            { "de", "German" },
-                            { "it", "Italian" },
-                            { "jp", "Japanese" },
-                            { "es", "Spanish" }
+                        return new List<ParameterOption> {
+                            new( "auto", "auto" ),
+                            new("zh", "Chinese" ),
+                            new("nl", "Dutch" ),
+                            new("en", "English" ),
+                            new ( "fr", "French" ),
+                            new ( "de", "German" ),
+                            new("it", "Italian" ),
+                            new("jp", "Japanese" ),
+                            new("es", "Spanish" )
                         };
 
                     default:
-                        throw new ArgumentException(string.Format("Unknown dropdown name: '{0}'", behaviorMode));
+                        throw new ArgumentException(string.Format("Unknown dropdown name: '{0}'", parameterName));
                 }
 
             }
@@ -962,6 +961,8 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                 return PrintErrorTemplate(order, ex.Message);
             }
         }
+
+       
         #endregion
     }
 }
