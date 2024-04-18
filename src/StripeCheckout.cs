@@ -7,14 +7,10 @@ using Dynamicweb.Extensibility.Editors;
 using Dynamicweb.Frontend;
 using Dynamicweb.Rendering;
 using Dynamicweb.Security.UserManagement;
-using Dynamicweb.SystemTools;
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Net;
-using System.Text;
 
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
 {
@@ -30,7 +26,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         private const string PostTemplateFolder = "eCom7/CheckoutHandler/Stripe/Post";
         private const string ErrorTemplateFolder = "eCom7/CheckoutHandler/Stripe/Error";
         private string errorTemplate;
-        private string postTemplate;       
+        private string postTemplate;
 
         #region Addin parameters
 
@@ -138,17 +134,20 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                 LogError(order, ex, "Unhandled exception with message: {0}", ex.Message);
                 return PrintErrorTemplate(order, ex.Message);
             }
-        }  
+        }
 
         private OutputResult StateOk(Order order)
         {
             LogEvent(order, "State ok");
+
             User user = UserContext.Current.User;
             bool saveUserCard = true;
             string cardId = string.Empty;
+
             string cardName = Context.Current.Request["CardTokenName"];
-            if (string.IsNullOrWhiteSpace(cardName) && 
-                !string.Equals(Context.Current.Request["ResetDraftCardName"], "true", StringComparison.InvariantCultureIgnoreCase))
+            string resetDraftCardName = Context.Current.Request["ResetDraftCardName"];
+            if (string.IsNullOrWhiteSpace(cardName) &&
+                !string.Equals(resetDraftCardName, "true", StringComparison.InvariantCultureIgnoreCase))
                 cardName = order.SavedCardDraftName;
 
             string token = Context.Current.Request["stripeToken"];
@@ -156,9 +155,9 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             string customerId = string.Empty;
             var card = new Dictionary<string, object>();
 
-            if (string.IsNullOrEmpty(token))            
+            if (string.IsNullOrEmpty(token))
                 throw new Exception("Stripe token is not defined.");
-            
+
             var rqstCharge = new Dictionary<string, object>
             {
                 ["amount"] = order.Price.PricePIP,
@@ -197,9 +196,10 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                         }
                     }
                 }
+
                 if (string.IsNullOrEmpty(cardId))
                 {
-                    var requestCustomer = new Dictionary<string, object> 
+                    var requestCustomer = new Dictionary<string, object>
                     {
                         ["email"] = email,
                         ["card"] = token
@@ -228,8 +228,8 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                 saveUserCard = false;
             }
 
-            if (string.IsNullOrEmpty(cardName))            
-                cardName = order.Id;            
+            if (string.IsNullOrEmpty(cardName))
+                cardName = order.Id;
 
             if (card.ContainsKey("brand") && card.ContainsKey("last4"))
             {
@@ -255,8 +255,8 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                 Services.Orders.Save(order);
             }
 
-            if (!order.IsRecurringOrderTemplate)            
-                return InitiatePaymentIntent(order, rqstCharge);            
+            if (!order.IsRecurringOrderTemplate)
+                return InitiatePaymentIntent(order, rqstCharge);
             else
             {
                 SetOrderComplete(order);
@@ -292,8 +292,6 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             };
         }
 
-        #region Stripe API
-
         private OutputResult InitiatePaymentIntent(Order order, Dictionary<string, object> chargeRequest)
         {
             if (order.Complete)
@@ -309,7 +307,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                     Parameters = chargeRequest,
                     IdempotencyKey = $"{MerchantName}:{order.Id}"
                 });
-                  
+
                 string status = Converter.ToString(responce["status"]);
                 if (status.Equals("requires_source_action"))
                 {
@@ -333,9 +331,9 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                 CheckoutDone(order);
             }
 
-            if (!order.Complete)            
+            if (!order.Complete)
                 throw new Exception("Called create charge, but order is not set complete.");
-            
+
             return PassToCart(order);
         }
 
@@ -376,12 +374,12 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             {
                 LogEvent(order, "Retrieving payment intent object");
                 string paymentIntentId = Converter.ToString(Context.Current.Request["payment_intent"]);
-               
+
                 Dictionary<string, object> intentResponce = StripeRequest.SendRequest(GetSecretKey(), new()
                 {
                     CommandType = string.IsNullOrEmpty(paymentIntentId) ? ApiCommand.GetAllPaymentIntents : ApiCommand.GetPaymentIntent,
-                    OperatorId = paymentIntentId                    
-                }); 
+                    OperatorId = paymentIntentId
+                });
                 CompleteOrder(order, intentResponce);
             }
             finally
@@ -389,15 +387,11 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                 CheckoutDone(order);
             }
 
-            if (!order.Complete)            
+            if (!order.Complete)
                 throw new Exception("Order completed at Stripe, but order is not set complete in dynamicweb side.");
-            
+
             return PassToCart(order);
         }
-
-
-
-        #endregion
 
         #region ISavedCard interface
 
@@ -445,11 +439,17 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         /// <returns>Empty string, if operation succeeded, otherwise string template with exception mesage</returns>
         public string UseSavedCard(Order order)
         {
+            /*PassToCart part doesn't work because of changes in Redirect behavior.
+            * We need to return RedirectOutputResult as OutputResult, and handle output result to make it work.
+            * It means, that we need to change ISavedCard.UseSavedCard method, probably create new one (with OutputResult as returned type)
+            * To make it work (temporarily), we use Response.Redirect here                 
+            */
+
             try
             {
-                UseSavedCardInternal(order);
+                if (UseSavedCardInternal(order, true) is RedirectOutputResult redirectResult)
+                    RedirectToCart(redirectResult);
 
-                RedirectToCart(order);
                 return string.Empty;
             }
             catch (System.Threading.ThreadAbortException)
@@ -459,8 +459,16 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             catch (Exception ex)
             {
                 LogEvent(order, ex.Message, DebuggingInfoType.UseSavedCard);
-                return PrintErrorTemplate(order, ex.Message, ErrorType.SavedCard);
+                OutputResult errorResult = PrintErrorTemplate(order, ex.Message, ErrorType.SavedCard);
+
+                if (errorResult is ContentOutputResult contentErrorResult)
+                    return contentErrorResult.Content;
+
+                if (errorResult is RedirectOutputResult redirectErrorResult)
+                    RedirectToCart(redirectErrorResult);
             }
+
+            return string.Empty;
         }
 
         /// <summary>
@@ -468,16 +476,13 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         /// </summary>
         /// <param name="order">Instance of order</param>
         /// <returns>True, if saving card is supported</returns>
-        public bool SavedCardSupported(Order order)
-        {
-            return true;
-        }
+        public bool SavedCardSupported(Order order) => true;
 
-        private void UseSavedCardInternal(Order order)
+        private OutputResult UseSavedCardInternal(Order order, bool alwaysPassToCart)
         {
             PaymentCardToken savedCard = Services.PaymentCard.GetById(order.SavedCardId);
-            if (savedCard is null || order.CustomerAccessUserId != savedCard.UserID)            
-                throw new PaymentCardTokenException("Token is incorrect.");            
+            if (savedCard is null || order.CustomerAccessUserId != savedCard.UserID)
+                throw new PaymentCardTokenException("Token is incorrect.");
 
             LogEvent(order, "Using saved card({0}) with id: {1}", savedCard.Identifier, savedCard.ID);
 
@@ -487,6 +492,9 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                 order.TransactionCardNumber = savedCard.Identifier;
                 SetOrderComplete(order);
                 CheckoutDone(order);
+
+                if (alwaysPassToCart)
+                    return PassToCart(order);
             }
             else
             {
@@ -500,6 +508,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                     { "capture_method", CaptureNow ? "automatic" : "manual" },
                     { "confirm", true}
                 };
+
                 if (token.Length > 1)
                 {
                     requestCharge["payment_method_types[0]"] = "card";
@@ -514,7 +523,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                         Parameters = requestCharge,
                         IdempotencyKey = $"{MerchantName}:{order.Id}"
                     });
-                        
+
                     CompleteOrder(order, intentResponce);
                 }
                 finally
@@ -523,12 +532,12 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                 }
 
                 if (!order.Complete)
-                {
                     throw new Exception("Called create charge, but order is not set complete.");
-                }
 
-                RedirectToCart(order);
+                return PassToCart(order);
             }
+
+            return ContentOutputResult.Empty;
         }
 
         #endregion
@@ -540,17 +549,14 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         /// </summary>
         /// <param name="order">Order to be captured</param>
         /// <returns>Response from transaction service</returns>
-        public OrderCaptureInfo Capture(Order order)
-        {
-            return Capture(order, order.Price.PricePIP, true);
-        }
+        public OrderCaptureInfo Capture(Order order) => Capture(order, order.Price.PricePIP, true);
 
         public OrderCaptureInfo Capture(Order order, long amount, bool final)
         {
             try
             {
                 // Check order
-                if (order == null)
+                if (order is null)
                 {
                     LogError(null, "Order not set");
                     return new OrderCaptureInfo(OrderCaptureInfo.OrderCaptureState.Failed, "Order not set");
@@ -586,7 +592,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                     CommandType = ApiCommand.CapturePaymentIntent,
                     OperatorId = order.TransactionNumber,
                     Parameters = rqstCapture
-                });                    
+                });
 
                 LogEvent(order, "Remote capture status: {0}", capture["status"]);
 
@@ -599,7 +605,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                     }
                     else
                     {
-                        LogEvent(order, String.Format("Message=\"{0}\" Amount=\"{1:f2}\"", "Split capture(final)", amount / 100f), DebuggingInfoType.CaptureResult);
+                        LogEvent(order, string.Format("Message=\"{0}\" Amount=\"{1:f2}\"", "Split capture(final)", amount / 100f), DebuggingInfoType.CaptureResult);
                         return new OrderCaptureInfo(OrderCaptureInfo.OrderCaptureState.Success, "Split capture successful");
                     }
                 }
@@ -624,20 +630,14 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         /// </summary>
         /// <param name="order">This object is not used in current implementation</param>
         /// <returns>This method always return 'true' value</returns>
-        public bool CaptureSupported(Order order)
-        {
-            return true;
-        }
+        public bool CaptureSupported(Order order) => true;
 
         /// <summary>
         /// Shows if partial capture of the order supported
         /// </summary>
         /// <param name="order">Not used</param>
         /// <returns>Always returns true</returns>
-        public bool SplitCaptureSupported(Order order)
-        {
-            return true;
-        }
+        public bool SplitCaptureSupported(Order order) => true;
 
         #endregion
 
@@ -650,18 +650,18 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         /// <param name="initialOrder">Base order, used for creating current recurring order</param>
         public void Recurring(Order order, Order initialOrder)
         {
-            if (order != null)
+            if (order is null)
+                return;
+
+            try
             {
-                try
-                {
-                    UseSavedCardInternal(order);
-                    LogEvent(order, "Recurring succeeded");
-                }
-                catch (Exception ex)
-                {
-                    LogEvent(order, "Recurring order failed for {0} (based on {1}). The payment failed with the message: {2}",
-                        DebuggingInfoType.RecurringError, order.Id, initialOrder.Id, ex.Message);
-                }
+                UseSavedCardInternal(order, false);
+                LogEvent(order, "Recurring succeeded");
+            }
+            catch (Exception ex)
+            {
+                LogEvent(order, "Recurring order failed for {0} (based on {1}). The payment failed with the message: {2}",
+                    DebuggingInfoType.RecurringError, order.Id, initialOrder.Id, ex.Message);
             }
         }
 
@@ -670,10 +670,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         /// </summary>
         /// <param name="order">Instance of order</param>
         /// <returns>True, if recurring payments are supported</returns>
-        public bool RecurringSupported(Order order)
-        {
-            return true;
-        }
+        public bool RecurringSupported(Order order) => true;
 
         #endregion
 
@@ -688,31 +685,27 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         {
             try
             {
-                switch (parameterName)
+                return parameterName switch
                 {
-                    case "Post mode":
-                        return new List<ParameterOption> {
-                            new( "Auto", "Auto post (does not use the template)" ),
-                            new( "Template", "Render template" )
-                        };
-
-                    case "Language":
-                        return new List<ParameterOption> {
-                            new( "auto", "auto" ),
-                            new("zh", "Chinese" ),
-                            new("nl", "Dutch" ),
-                            new("en", "English" ),
-                            new ( "fr", "French" ),
-                            new ( "de", "German" ),
-                            new("it", "Italian" ),
-                            new("jp", "Japanese" ),
-                            new("es", "Spanish" )
-                        };
-
-                    default:
-                        throw new ArgumentException(string.Format("Unknown dropdown name: '{0}'", parameterName));
-                }
-
+                    "Post mode" => new List<ParameterOption>
+                    {
+                        new("Auto", "Auto post (does not use the template)"),
+                        new("Template", "Render template")
+                    },
+                    "Language" => new List<ParameterOption>
+                    {
+                        new("auto", "auto"),
+                        new("zh", "Chinese"),
+                        new("nl", "Dutch"),
+                        new("en", "English"),
+                        new("fr", "French"),
+                        new("de", "German"),
+                        new("it", "Italian"),
+                        new("jp", "Japanese"),
+                        new("es", "Spanish")
+                    },
+                    _ => throw new ArgumentException(string.Format("Unknown dropdown name: '{0}'", parameterName))
+                };
             }
             catch (Exception ex)
             {
@@ -722,7 +715,6 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         }
 
         #endregion
-
 
         private string Refund(Order order, long? amount = null)
         {
@@ -746,12 +738,14 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
 
                 var reqeuestBody = new Dictionary<string, object> { ["charge"] = order.TransactionNumber };
 
-                if (amount != null)
-                {
+                if (amount is not null)
                     reqeuestBody.Add("amount", amount.ToString());
-                }
 
-                var returnResponce = ExecuteRequest("refunds", reqeuestBody);
+                Dictionary<string, object> returnResponce = StripeRequest.SendRequest(GetSecretKey(), new()
+                {
+                    CommandType = ApiCommand.CreateRefund,
+                    Parameters = reqeuestBody
+                });
                 LogEvent(order, "Remote return status: {0}", returnResponce["status"]);
 
                 if (string.Compare(Converter.ToString(returnResponce["status"]), "succeeded", StringComparison.OrdinalIgnoreCase) == 0)
@@ -779,41 +773,38 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         }
 
         #region IPartialReturn, IFullReturn
-        public void PartialReturn(Order order, Order originalOrder)
-        {
-            ProceedReturn(originalOrder, order?.Price?.PricePIP);
-        }
 
-        public void FullReturn(Order order)
-        {
-            ProceedReturn(order);
-        }
+        public void PartialReturn(Order order, Order originalOrder) => ProceedReturn(originalOrder, order?.Price?.PricePIP);
+
+        public void FullReturn(Order order) => ProceedReturn(order);
 
         private void ProceedReturn(Order order, long? amount = null)
         {
             // Check order
-            if (order == null)
+            if (order is null)
             {
                 LogError(null, "Order not set");
                 return;
             }
 
-            var operationAmount = amount == null ? order.CaptureAmount : Converter.ToDouble(amount) / 100;
+            double operationAmount = amount is null ? order.CaptureAmount : Converter.ToDouble(amount) / 100;
 
-            if (order.CaptureInfo == null || order.CaptureInfo.State != OrderCaptureInfo.OrderCaptureState.Success || order.CaptureAmount <= 0.00)
+            if (order.CaptureInfo is null || order.CaptureInfo.State is not OrderCaptureInfo.OrderCaptureState.Success || order.CaptureAmount <= 0.00)
             {
                 OrderReturnInfo.SaveReturnOperation(OrderReturnOperationState.Failed, "Order must be captured before return.", order.CaptureAmount, order);
                 LogError(null, "Order must be captured before return.");
                 return;
             }
 
-            if (amount != null && order.CaptureAmount < operationAmount)
+            if (amount is not null && order.CaptureAmount < operationAmount)
             {
-                OrderReturnInfo.SaveReturnOperation(
+                OrderReturnInfo.SaveReturnOperation
+                (
                     OrderReturnOperationState.Failed,
                     $"Order captured amount({Services.Currencies.Format(order.Currency, order.CaptureAmount)}) less than amount requested for return{Services.Currencies.Format(order.Currency, operationAmount)}.",
                     operationAmount,
-                    order);
+                    order
+                );
                 LogError(order, "Order captured amount less then amount requested for return.");
                 return;
             }
@@ -821,33 +812,40 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             var errorMessage = Refund(order, amount);
             if (string.IsNullOrEmpty(errorMessage))
             {
-                OrderReturnInfo.SaveReturnOperation(amount == null ? OrderReturnOperationState.FullyReturned : OrderReturnOperationState.PartiallyReturned, "Stripe has refunded payment.", operationAmount, order);
+                var operationState = amount is null ? OrderReturnOperationState.FullyReturned : OrderReturnOperationState.PartiallyReturned;
+                OrderReturnInfo.SaveReturnOperation(operationState, "Stripe has refunded payment.", operationAmount, order);
             }
             else
-            {
                 OrderReturnInfo.SaveReturnOperation(OrderReturnOperationState.Failed, errorMessage, operationAmount, order);
-            }
-
         }
+
         #endregion
 
         #region ICancelOrder
+
         public bool CancelOrder(Order order)
         {
-            var errorMessage = Refund(order);
+            string errorMessage = Refund(order);
             return string.IsNullOrEmpty(errorMessage);
         }
 
         #endregion
 
         #region RenderInlineForm
+
         public override string RenderInlineForm(Order order)
         {
             if (RenderInline)
             {
                 LogEvent(order, "Render inline form");
                 var formTemplate = new Template(TemplateHelper.GetTemplatePath(PostTemplate, PostTemplateFolder));
-                return RenderPaymentForm(order, formTemplate);
+
+                OutputResult outputResult = RenderPaymentForm(order, formTemplate);
+
+                if (outputResult is ContentOutputResult paymentFormData)
+                    return paymentFormData.Content;
+                if (outputResult is RedirectOutputResult)
+                    return "Unhandled exception. Please see logs to find the problem.";
             }
 
             return string.Empty;
@@ -857,7 +855,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
         {
             try
             {
-                var formValues = new Dictionary<string, string> 
+                var formValues = new Dictionary<string, string>
                 {
                     ["publishablekey"] = TestMode ? TestPublishableKey : LivePublishableKey,
                     ["language"] = Language,
@@ -869,10 +867,10 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                     ["email"] = order.CustomerEmail
                 };
 
-                foreach ((string key, string value) in formValues)                
-                    formTemplate.SetTag(string.Format("Stripe.{0}", key), value);                
+                foreach ((string key, string value) in formValues)
+                    formTemplate.SetTag(string.Format("Stripe.{0}", key), value);
 
-                if (order.DoSaveCardToken)                
+                if (order.DoSaveCardToken)
                     formTemplate.SetTag("SavedCardCreate", "true");
 
                 // Render and return
@@ -892,7 +890,11 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             }
         }
 
-       
         #endregion
+
+        /// <summary>
+        /// A temporary method to maintain previous behavior. Redirects to cart by Response.Redirect. Please remove it when the needed changes will be done.
+        /// </summary>
+        private void RedirectToCart(RedirectOutputResult redirectResult) => Context.Current.Response.Redirect(redirectResult.RedirectUrl, redirectResult.IsPermanent);
     }
 }

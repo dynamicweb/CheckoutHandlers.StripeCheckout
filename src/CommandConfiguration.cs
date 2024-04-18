@@ -6,7 +6,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
 internal class CommandConfiguration
 {
     /// <summary>
-    /// Stripe command. See operation urls in <see cref="StripeRequest"/> 
+    /// Stripe command. See operation urls in <see cref="StripeRequest"/> and <see cref="ApiCommand"/>
     /// </summary>
     public ApiCommand CommandType { get; set; }
 

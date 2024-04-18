@@ -20,7 +20,7 @@ internal class StripeRequest
     {
         SecretKey = secretKey;
     }
-   
+
     public static Dictionary<string, object> SendRequest(string secretKey, CommandConfiguration configuration)
     {
         using (var messageHandler = GetMessageHandler())
