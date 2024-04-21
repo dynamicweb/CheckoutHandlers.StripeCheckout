@@ -1,5 +1,9 @@
 ﻿using Dynamicweb.Core;
 using Dynamicweb.Ecommerce.Cart;
+using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
+using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Refund;
+using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Source;
+using Dynamicweb.Ecommerce.ChecskoutHandlers.StripeCheckout.Models.Customer;
 using Dynamicweb.Ecommerce.Orders;
 using Dynamicweb.Ecommerce.Orders.Gateways;
 using Dynamicweb.Extensibility.AddIns;
@@ -153,7 +157,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             string token = Context.Current.Request["stripeToken"];
             string email = Context.Current.Request["stripeEmail"];
             string customerId = string.Empty;
-            var card = new Dictionary<string, object>();
+            Source card = null;
 
             if (string.IsNullOrEmpty(token))
                 throw new Exception("Stripe token is not defined.");
@@ -182,13 +186,14 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
 
                         try
                         {
-                            card = request.SendRequest(new()
+                            string response = request.SendRequest(new()
                             {
                                 CommandType = ApiCommand.AttachSource,
                                 OperatorId = customerId,
                                 Parameters = requestCard
                             });
-                            cardId = Converter.ToString(card["id"]);
+                            card = Converter.Deserialize<Source>(response);
+                            cardId = card.Id;
                         }
                         catch
                         {
@@ -205,15 +210,16 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                         ["card"] = token
                     };
 
-                    Dictionary<string, object> customer = request.SendRequest(new()
+                    string response = request.SendRequest(new()
                     {
                         CommandType = ApiCommand.CreateCustomer,
                         Parameters = requestCustomer
                     });
-                    customerId = Converter.ToString(customer["id"]);
-                    var sources = (dynamic)customer["sources"];
-                    card = sources["data"].First.ToObject<Dictionary<string, object>>();
-                    cardId = Converter.ToString(card["id"]);
+                    var customer = Converter.Deserialize<Customer>(response);
+
+                    customerId = customer.Id;
+                    card = customer.Sources.Data.First();
+                    cardId = card.Id;
                 }
 
                 rqstCharge["customer"] = customerId;
@@ -231,10 +237,10 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             if (string.IsNullOrEmpty(cardName))
                 cardName = order.Id;
 
-            if (card.ContainsKey("brand") && card.ContainsKey("last4"))
+            if (!string.IsNullOrEmpty(card.Brand) && !string.IsNullOrEmpty(card.Last4))
             {
-                order.TransactionCardType = Converter.ToString(card["brand"]);
-                order.TransactionCardNumber = HideCardNumber(Converter.ToString(card["last4"]));
+                order.TransactionCardType = card.Brand;
+                order.TransactionCardNumber = HideCardNumber(Converter.ToString(card.Last4));
             }
 
             if (saveUserCard)
@@ -301,25 +307,26 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             {
                 LogEvent(order, "Starting payment process");
 
-                Dictionary<string, object> responce = StripeRequest.SendRequest(GetSecretKey(), new()
+                string responce = StripeRequest.SendRequest(GetSecretKey(), new()
                 {
                     CommandType = ApiCommand.CreatePaymentIntent,
                     Parameters = chargeRequest,
                     IdempotencyKey = $"{MerchantName}:{order.Id}"
                 });
+                var paymentIntent = Converter.Deserialize<PaymentIntent>(responce);
 
-                string status = Converter.ToString(responce["status"]);
-                if (status.Equals("requires_source_action"))
+                string status = paymentIntent.Status.ToString();
+                if (paymentIntent.Status is PaymentIntentStatus.RequiresPaymentMethod)
                 {
                     LogEvent(order, "Stripe requested tranaction authorization");
-                    var nextAction = (dynamic)responce["next_action"];
-                    var redirectInfo = nextAction["redirect_to_url"];
-                    string redirectUrl = Converter.ToString(redirectInfo["url"]);
+                    var nextAction = paymentIntent.NextAction;
+                    var redirectInfo = nextAction.RedirectToUrl;
+                    string redirectUrl = redirectInfo.Url;
 
                     return new RedirectOutputResult { RedirectUrl = redirectUrl };
                 }
 
-                CompleteOrder(order, responce);
+                CompleteOrder(order, paymentIntent);
                 CheckoutDone(order);
             }
             catch (System.Threading.ThreadAbortException)
@@ -337,20 +344,28 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             return PassToCart(order);
         }
 
-        private void CompleteOrder(Order order, Dictionary<string, object> intentResponce)
+        private void CompleteOrder(Order order, PaymentIntent paymentIntent)
         {
-            var charges = ((dynamic)intentResponce["charges"])["data"];
-            var chargeObject = charges[0];
-            string chargeStatus = Converter.ToString(chargeObject["status"]);
-            if (chargeStatus.Equals("succeeded"))
+            if (paymentIntent is null)
+                throw new Exception("Payment intent was not found.");
+
+            string response = StripeRequest.SendRequest(GetSecretKey(), new()
             {
-                string transactionId = Converter.ToString(intentResponce["id"]);
+                CommandType = ApiCommand.GetCustomerPaymentMethod,
+                OperatorId = paymentIntent.Customer,
+                OperatorSecondId = paymentIntent.PaymentMethod
+            });
+            PaymentMethod paymentMethod = Converter.Deserialize<PaymentMethod>(response);
+
+            if (paymentIntent.Status is PaymentIntentStatus.Succeeded)
+            {
+                string transactionId = paymentIntent.Id;
                 LogEvent(order, "Payment succeeded with transaction number {0}", transactionId);
 
-                string transactionCardType = Converter.ToString(chargeObject["payment_method_details"]["card"]["brand"]);
-                string transactionCardNumber = Converter.ToString(chargeObject["payment_method_details"]["card"]["last4"]);
-                bool captured = Converter.ToBoolean(chargeObject["captured"]);
-                double transactionAmount = Converter.ToInt32(chargeObject["amount"]) / 100d;
+                string transactionCardType = paymentMethod.Card?.Brand;
+                string transactionCardNumber = paymentMethod.Card?.Last4;
+                bool captured = paymentIntent.AmountCapturable == 0;
+                double transactionAmount = paymentIntent.Amount / 100d;
 
                 order.TransactionCardType = transactionCardType;
                 order.TransactionCardNumber = HideCardNumber(transactionCardNumber);
@@ -374,13 +389,19 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             {
                 LogEvent(order, "Retrieving payment intent object");
                 string paymentIntentId = Converter.ToString(Context.Current.Request["payment_intent"]);
+                bool getAllPaymentIntents = string.IsNullOrEmpty(paymentIntentId);
 
-                Dictionary<string, object> intentResponce = StripeRequest.SendRequest(GetSecretKey(), new()
+                string response = StripeRequest.SendRequest(GetSecretKey(), new()
                 {
-                    CommandType = string.IsNullOrEmpty(paymentIntentId) ? ApiCommand.GetAllPaymentIntents : ApiCommand.GetPaymentIntent,
+                    CommandType = getAllPaymentIntents ? ApiCommand.GetAllPaymentIntents : ApiCommand.GetPaymentIntent,
                     OperatorId = paymentIntentId
                 });
-                CompleteOrder(order, intentResponce);
+
+                PaymentIntent paymentIntent = getAllPaymentIntents
+                    ? Converter.Deserialize<PaymentIntents>(response)?.Data?.FirstOrDefault()
+                    : Converter.Deserialize<PaymentIntent>(response);
+
+                CompleteOrder(order, paymentIntent);
             }
             finally
             {
@@ -517,14 +538,14 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                 }
                 try
                 {
-                    Dictionary<string, object> intentResponce = StripeRequest.SendRequest(GetSecretKey(), new()
+                    string response = StripeRequest.SendRequest(GetSecretKey(), new()
                     {
                         CommandType = ApiCommand.CreatePaymentIntent,
                         Parameters = requestCharge,
                         IdempotencyKey = $"{MerchantName}:{order.Id}"
                     });
-
-                    CompleteOrder(order, intentResponce);
+                    PaymentIntent paymentIntent = Converter.Deserialize<PaymentIntent>(response);
+                    CompleteOrder(order, paymentIntent);
                 }
                 finally
                 {
@@ -587,16 +608,18 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                     };
                 }
 
-                var capture = StripeRequest.SendRequest(GetSecretKey(), new()
+                string response = StripeRequest.SendRequest(GetSecretKey(), new()
                 {
                     CommandType = ApiCommand.CapturePaymentIntent,
                     OperatorId = order.TransactionNumber,
                     Parameters = rqstCapture
                 });
+                PaymentIntent paymentIntent = Converter.Deserialize<PaymentIntent>(response);
 
-                LogEvent(order, "Remote capture status: {0}", capture["status"]);
 
-                if (string.Compare(Converter.ToString(capture["status"]), "succeeded", true) == 0)
+                LogEvent(order, "Remote capture status: {0}", paymentIntent.Status.ToString());
+
+                if (paymentIntent.Status is PaymentIntentStatus.Succeeded)
                 {
                     if (order.Price.PricePIP == amount)
                     {
@@ -612,7 +635,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                 else
                 {
                     // Not success
-                    string infoTxt = string.Format("Remote Capture failed. Error code: {0}, mmessage: {1}", capture["failure_code"], capture["failure_message"]);
+                    string infoTxt = string.Format("Remote Capture failed. The reason: {0}", paymentIntent.CancellationReason);
 
                     LogEvent(order, infoTxt, DebuggingInfoType.CaptureResult);
                     return new OrderCaptureInfo(OrderCaptureInfo.OrderCaptureState.Failed, infoTxt);
@@ -741,14 +764,16 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                 if (amount is not null)
                     reqeuestBody.Add("amount", amount.ToString());
 
-                Dictionary<string, object> returnResponce = StripeRequest.SendRequest(GetSecretKey(), new()
+                string response = StripeRequest.SendRequest(GetSecretKey(), new()
                 {
                     CommandType = ApiCommand.CreateRefund,
                     Parameters = reqeuestBody
                 });
-                LogEvent(order, "Remote return status: {0}", returnResponce["status"]);
+                RefundData refund = Converter.Deserialize<RefundData>(response);
 
-                if (string.Compare(Converter.ToString(returnResponce["status"]), "succeeded", StringComparison.OrdinalIgnoreCase) == 0)
+                LogEvent(order, "Remote return status: {0}", refund.Status);
+
+                if (string.Compare(Converter.ToString(refund.Status), "succeeded", StringComparison.OrdinalIgnoreCase) == 0)
                 {
                     LogEvent(order, "Return successful", DebuggingInfoType.ReturnResult);
                     return null;
@@ -756,10 +781,8 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
 
                 errorMessage = "Return operation failed.";
                 // Not success
-                if (returnResponce.ContainsKey("failure_code") && returnResponce.ContainsKey("failure_message"))
-                {
-                    errorMessage += $" Error code: {returnResponce["failure_code"]}, mmessage: {returnResponce["failure_message"]}";
-                }
+                if (!string.IsNullOrEmpty(refund.FailureReason))                
+                    errorMessage += $"Reason: {refund.FailureReason}";                
 
                 LogEvent(order, errorMessage, DebuggingInfoType.ReturnResult);
                 return errorMessage;

@@ -1,8 +1,11 @@
 ﻿using Dynamicweb.Core;
+using Dynamicweb.Core.Encoders;
 using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
@@ -21,7 +24,7 @@ internal class StripeRequest
         SecretKey = secretKey;
     }
 
-    public static Dictionary<string, object> SendRequest(string secretKey, CommandConfiguration configuration)
+    public static string SendRequest(string secretKey, CommandConfiguration configuration)
     {
         using (var messageHandler = GetMessageHandler())
         {
@@ -43,7 +46,8 @@ internal class StripeRequest
                     ApiCommand.AttachSource => client.PostAsync(apiCommand, new FormUrlEncodedContent(GetParameters(configuration.Parameters))),
                     //GET
                     ApiCommand.GetAllPaymentIntents or
-                    ApiCommand.GetPaymentIntent => client.GetAsync(apiCommand),
+                    ApiCommand.GetPaymentIntent or
+                    ApiCommand.GetCustomerPaymentMethod => client.GetAsync(apiCommand),
                     //DELETE
                     ApiCommand.DeleteCustomer or
                     ApiCommand.DetachSource => client.DeleteAsync(apiCommand),
@@ -56,11 +60,12 @@ internal class StripeRequest
                     {
                         string data = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
 
-                        var content = Converter.Deserialize<Dictionary<string, object>>(data);
                         if (!response.IsSuccessStatusCode)
                         {
+                            var content = Converter.Deserialize<Dictionary<string, JsonObject>>(data);
+
                             string errorMessage = "Unhandled exception. Operation failed.";
-                            if (content.TryGetValue("error", out dynamic error))
+                            if (content.TryGetValue("error", out JsonObject error))
                             {
                                 errorMessage = string.IsNullOrEmpty(Converter.ToString(error["code"]))
                                     ? Converter.ToString(error["message"])
@@ -70,7 +75,7 @@ internal class StripeRequest
                             throw new Exception(errorMessage);
                         }
 
-                        return content;
+                        return data;
                     }
                 }
                 catch (HttpRequestException requestException)
@@ -88,7 +93,7 @@ internal class StripeRequest
         };
     }
 
-    public Dictionary<string, object> SendRequest(CommandConfiguration configuration) => SendRequest(SecretKey, configuration);
+    public string SendRequest(CommandConfiguration configuration) => SendRequest(SecretKey, configuration);
 
     private static Dictionary<string, string> GetParameters(Dictionary<string, object> parameters)
     {
@@ -97,7 +102,7 @@ internal class StripeRequest
 
         var formParameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach ((string key, object value) in parameters)
-            formParameters[key] = WebUtility.UrlEncode(value?.ToString() ?? string.Empty);
+            formParameters[key] = Uri.EscapeDataString(value?.ToString() ?? string.Empty);
 
         return formParameters;
     }
@@ -114,6 +119,7 @@ internal class StripeRequest
             ApiCommand.CreateRefund => GetCommandLink("refunds"),
             ApiCommand.AttachSource => GetCommandLink($"customers/{operatorId}/sources"),
             ApiCommand.DetachSource => GetCommandLink($"customers/{operatorId}/sources/{operatorSecondId}"),
+            ApiCommand.GetCustomerPaymentMethod => GetCommandLink($"customers/{operatorId}/payment_methods/{operatorSecondId}"),
             _ => string.Empty
         };
 

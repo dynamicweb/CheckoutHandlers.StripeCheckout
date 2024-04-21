@@ -33,6 +33,12 @@ internal enum ApiCommand
     GetAllPaymentIntents,
 
     /// <summary>
+    /// Retrieves a PaymentMethod object for a given Customer.
+    /// GET /customers/{operatorId}/payment_methods/{operatorSecondId}
+    /// </summary>
+    GetCustomerPaymentMethod,
+
+    /// <summary>
     /// Captures the funds of an existing uncaptured PaymentIntent when its status is requires_capture.
     /// POST /payment_intents/{operatorId}/capture
     /// </summary>
@@ -55,4 +61,6 @@ internal enum ApiCommand
     /// DELETE /customers/{operatorId}/sources/{operatorSecondId}
     /// </summary>
     DetachSource,
+
+
 }
