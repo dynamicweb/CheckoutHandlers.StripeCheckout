@@ -3,7 +3,7 @@
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
 
 [DataContract]
-public class NextAction
+internal sealed class NextAction
 {
     [DataMember(Name = "type")]
     public string Type { get; set; }

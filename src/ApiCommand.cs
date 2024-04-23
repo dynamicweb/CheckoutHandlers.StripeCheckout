@@ -9,6 +9,12 @@ internal enum ApiCommand
     CreateCustomer,
 
     /// <summary>
+    /// Retrieves a Customer object.
+    /// GET /customers/{operatorId}
+    /// </summary>
+    GetCustomer,
+
+    /// <summary>
     /// Permanently deletes a customer. It cannot be undone. Also immediately cancels any active subscriptions on the customer.
     /// DELETE /customers/{operatorId}
     /// </summary>
@@ -33,34 +39,38 @@ internal enum ApiCommand
     GetAllPaymentIntents,
 
     /// <summary>
-    /// Retrieves a PaymentMethod object for a given Customer.
-    /// GET /customers/{operatorId}/payment_methods/{operatorSecondId}
-    /// </summary>
-    GetCustomerPaymentMethod,
-
-    /// <summary>
     /// Captures the funds of an existing uncaptured PaymentIntent when its status is requires_capture.
     /// POST /payment_intents/{operatorId}/capture
     /// </summary>
     CapturePaymentIntent,
 
     /// <summary>
+    /// Creates a PaymentMethod object.
+    /// POST /payment_methods
+    /// </summary>
+    CreatePaymentMethod,
+
+    /// <summary>
+    /// Retrieves a PaymentMethod object for a given Customer.
+    /// GET /customers/{operatorId}/payment_methods/{operatorSecondId}
+    /// </summary>
+    GetCustomerPaymentMethod,
+
+    /// <summary>
+    /// Attaches a PaymentMethod object to a Customer.
+    /// POST /payment_methods/{operatorId}/attach
+    /// </summary>
+    AttachPaymentMethod,
+
+    /// <summary>
+    /// Detaches a PaymentMethod object from a Customer. After a PaymentMethod is detached, it can no longer be used for a payment or re-attached to a Customer.
+    /// POST /payment_methods/{operatorId}/detach
+    /// </summary>
+    DetachPaymentMethod,
+
+    /// <summary>
     /// Creates new refund. Refund objects allow you to refund a previously created charge that isn’t refunded yet. Funds are refunded to the credit or debit card that’s initially charged.
     /// POST /refunds
     /// </summary>
-    CreateRefund,
-
-    /// <summary>
-    /// Attaches a Source object to a Customer. The source must be in a chargeable or pending state. Source objects allow you to accept a variety of payment methods. They represent a customer’s payment instrument.
-    /// POST /customers/{operatorId}/sources
-    /// </summary>
-    AttachSource,
-
-    /// <summary>
-    /// Detaches a Source object from a Customer. The status of a source is changed to consumed when it is detached and it can no longer be used to create a charge.
-    /// DELETE /customers/{operatorId}/sources/{operatorSecondId}
-    /// </summary>
-    DetachSource,
-
-
+    CreateRefund    
 }

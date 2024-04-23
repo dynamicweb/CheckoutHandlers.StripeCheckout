@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
 
-internal class CommandConfiguration
+internal sealed class CommandConfiguration
 {
     /// <summary>
     /// Stripe command. See operation urls in <see cref="StripeRequest"/> and <see cref="ApiCommand"/>

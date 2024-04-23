@@ -1,6 +1,6 @@
 ﻿namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
 
-public enum ErrorType
+internal enum ErrorType
 {
     Undefined,
     SavedCard

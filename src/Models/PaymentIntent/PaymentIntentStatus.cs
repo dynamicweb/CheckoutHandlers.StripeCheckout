@@ -3,7 +3,7 @@
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
 
 [DataContract]
-public enum PaymentIntentStatus
+internal enum PaymentIntentStatus
 {
     [EnumMember(Value = "canceled")]
     Canceled,

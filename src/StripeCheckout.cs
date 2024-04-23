@@ -1,8 +1,8 @@
 ﻿using Dynamicweb.Core;
 using Dynamicweb.Ecommerce.Cart;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
+using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentMethod;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Refund;
-using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Source;
 using Dynamicweb.Ecommerce.ChecskoutHandlers.StripeCheckout.Models.Customer;
 using Dynamicweb.Ecommerce.Orders;
 using Dynamicweb.Ecommerce.Orders.Gateways;
@@ -145,97 +145,130 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             LogEvent(order, "State ok");
 
             User user = UserContext.Current.User;
-            bool saveUserCard = true;
-            string cardId = string.Empty;
-
-            string cardName = Context.Current.Request["CardTokenName"];
-            string resetDraftCardName = Context.Current.Request["ResetDraftCardName"];
-            if (string.IsNullOrWhiteSpace(cardName) &&
-                !string.Equals(resetDraftCardName, "true", StringComparison.InvariantCultureIgnoreCase))
-                cardName = order.SavedCardDraftName;
 
             string token = Context.Current.Request["stripeToken"];
             string email = Context.Current.Request["stripeEmail"];
-            string customerId = string.Empty;
-            Source card = null;
 
             if (string.IsNullOrEmpty(token))
                 throw new Exception("Stripe token is not defined.");
 
-            var rqstCharge = new Dictionary<string, object>
-            {
-                ["amount"] = order.Price.PricePIP,
-                ["currency"] = order.CurrencyCode,
-                ["description"] = order.Id,
-                ["capture_method"] = CaptureNow ? "automatic" : "manual",
-                ["confirm"] = true,
-                ["return_url"] = $"{GetBaseUrl(order)}&stripeToken={token}&stripeEmail={email}&Action=Complete&CardTokenName={cardName}"
-            };
+            var cardSettings = new BasePaymentCardSettings(order);
+            Customer customer = cardSettings.IsSaveNeeded ? SendCustomerRequest() : null;
+                  
+            if (!order.IsRecurringOrderTemplate)
+                return InitiatePaymentIntent(order, token, email, cardSettings, customer?.Id);
+            else
+                return CreatePaymentMethod(order, token, cardSettings, customer.Id);
 
-            if (Converter.ToBoolean(Context.Current.Request["SavedCardCreate"]) || !string.IsNullOrWhiteSpace(cardName) || order.IsRecurringOrderTemplate)
+            Customer SendCustomerRequest()
             {
-                var request = new StripeRequest(GetSecretKey());
+                var service = new StripeService(GetSecretKey());
 
-                if (user is not null)
+                IEnumerable<PaymentCardToken> tokens = Services.PaymentCard.GetByUserId(user?.ID ?? 0, order.PaymentMethodId);
+                if (tokens.Any())
                 {
-                    IEnumerable<PaymentCardToken> tokens = Services.PaymentCard.GetByUserId(user.ID, order.PaymentMethodId);
-                    if (tokens.Any())
+                    string customerId = tokens.First().Token.Split('|')[0];
+                    try
                     {
-                        customerId = tokens.First().Token.Split('|')[0];
-                        var requestCard = new Dictionary<string, object> { ["source"] = token };
-
-                        try
-                        {
-                            string response = request.SendRequest(new()
-                            {
-                                CommandType = ApiCommand.AttachSource,
-                                OperatorId = customerId,
-                                Parameters = requestCard
-                            });
-                            card = Converter.Deserialize<Source>(response);
-                            cardId = card.Id;
-                        }
-                        catch
-                        {
-                            LogEvent(order, "Couldn't use stripe customer: {0}. Will create new one.", customerId);
-                        }
+                        return service.GetCustomer(customerId);
+                    }
+                    catch
+                    {
+                        LogEvent(order, "Couldn't use stripe customer: {0}. The new customer will be created.", customerId);
                     }
                 }
 
-                if (string.IsNullOrEmpty(cardId))
+                return service.CreateCustomer(email, user?.UserName);
+            }
+        }
+
+        private OutputResult InitiatePaymentIntent(Order order, string token, string email, BasePaymentCardSettings cardSettings, string customerId)
+        {
+            if (order.Complete)
+                return PassToCart(order);
+
+            try
+            {
+                LogEvent(order, "Starting payment process");
+
+                var parameters = new Dictionary<string, object>
                 {
-                    var requestCustomer = new Dictionary<string, object>
-                    {
-                        ["email"] = email,
-                        ["card"] = token
-                    };
+                    ["amount"] = order.Price.PricePIP,
+                    ["currency"] = order.CurrencyCode,
+                    ["description"] = order.Id,
+                    ["capture_method"] = CaptureNow ? "automatic" : "manual",
+                    ["confirm"] = true,
+                    ["return_url"] = $"{GetBaseUrl(order)}&stripeToken={token}&stripeEmail={email}&Action=Complete&CardTokenName={cardSettings.Name}"
+                };
 
-                    string response = request.SendRequest(new()
-                    {
-                        CommandType = ApiCommand.CreateCustomer,
-                        Parameters = requestCustomer
-                    });
-                    var customer = Converter.Deserialize<Customer>(response);
-
-                    customerId = customer.Id;
-                    card = customer.Sources.Data.First();
-                    cardId = card.Id;
+                if (cardSettings.IsSaveNeeded)
+                {
+                    parameters["customer"] = customerId;
+                    parameters["setup_future_usage"] = "off_session";
                 }
 
-                rqstCharge["customer"] = customerId;
-                rqstCharge["payment_method_types[0]"] = "card";
-                rqstCharge["payment_method"] = cardId;
-                rqstCharge["setup_future_usage"] = "off_session";
+                parameters["payment_method_data[type]"] = "card";
+                parameters["payment_method_data[card][token]"] = token;
+
+                var service = new StripeService(GetSecretKey());
+                PaymentIntent paymentIntent = service.CreatePaymentIntent($"{MerchantName}:{order.Id}", parameters);
+                PaymentMethod paymentMethod = service.GetPaymentMethod(paymentIntent.CustomerId, paymentIntent.PaymentMethodId);
+                SaveTransactionInformation(order, paymentMethod, cardSettings, customerId);
+
+                if (paymentIntent.Status is PaymentIntentStatus.RequiresPaymentMethod)
+                {
+                    LogEvent(order, "Stripe requested transaction authorization");
+                    var nextAction = paymentIntent.NextAction;
+                    var redirectInfo = nextAction.RedirectToUrl;
+                    string redirectUrl = redirectInfo.Url;
+
+                    return new RedirectOutputResult { RedirectUrl = redirectUrl };
+                }
+
+                CompleteOrder(order, paymentIntent, paymentMethod);
+                CheckoutDone(order);
             }
-            else
+            catch (System.Threading.ThreadAbortException)
             {
-                rqstCharge["payment_method_data[type]"] = "card";
-                rqstCharge["payment_method_data[card][token]"] = token;
-                saveUserCard = false;
+                //do nothing, payment redirected to authorize transaction
+            }
+            catch
+            {
+                CheckoutDone(order);
             }
 
-            if (string.IsNullOrEmpty(cardName))
-                cardName = order.Id;
+            if (!order.Complete)
+                throw new Exception("Called create charge, but order is not set complete.");
+
+            return PassToCart(order);
+        }
+
+        private OutputResult CreatePaymentMethod(Order order, string token, BasePaymentCardSettings cardSettings, string customerId)
+        {
+            LogEvent(order, "Creating Stripe payment method.");
+            var service = new StripeService(GetSecretKey());
+
+            var parameters = new Dictionary<string, object>
+            {
+                ["type"] = "card",
+                ["card[token]"] = token
+            };
+
+            LogEvent(order, "Attaching Stripe payment method to a customer.");
+
+            PaymentMethod paymentMethod = service.CreatePaymentMethod(parameters);
+            service.AttachPaymentMethod(paymentMethod.Id, customerId);
+            SaveTransactionInformation(order, paymentMethod, cardSettings, customerId);
+
+            SetOrderComplete(order);
+            CheckoutDone(order);
+
+            return PassToCart(order);
+        }
+
+        private void SaveTransactionInformation(Order order, PaymentMethod paymentMethod, BasePaymentCardSettings cardSettings, string customerId)
+        {
+            Card card = paymentMethod.Card;
 
             if (!string.IsNullOrEmpty(card.Brand) && !string.IsNullOrEmpty(card.Last4))
             {
@@ -243,33 +276,27 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                 order.TransactionCardNumber = HideCardNumber(Converter.ToString(card.Last4));
             }
 
-            if (saveUserCard)
+            if (cardSettings.IsSaveNeeded)
             {
-                if (user is not null)
+                if (UserContext.Current.User is User user)
                 {
-                    var savedCard = Services.PaymentCard.CreatePaymentCard(
-                        user.ID,
-                        order.PaymentMethodId,
-                        cardName,
-                        order.TransactionCardType,
-                        order.TransactionCardNumber,
-                        string.Format("{0}|{1}", customerId, cardId)
-                    );
-
-                    order.SavedCardId = savedCard.ID;
+                    var paymentCard = new PaymentCardToken
+                    {
+                        UserID = user.ID,
+                        PaymentID = order.PaymentMethodId,
+                        Name = cardSettings.Name,
+                        CardType = order.TransactionCardType,
+                        Identifier = order.TransactionCardNumber,
+                        Token = string.Format("{0}|{1}", customerId, paymentMethod.Id),
+                        UsedDate = DateTime.Now,
+                        ExpirationMonth = card.ExpirationMonth,
+                        ExpirationYear = card.ExpirationYear
+                    };
+                    Services.PaymentCard.Save(paymentCard);
+                    order.SavedCardId = paymentCard.ID;
                 }
                 Services.Orders.Save(order);
             }
-
-            if (!order.IsRecurringOrderTemplate)
-                return InitiatePaymentIntent(order, rqstCharge);
-            else
-            {
-                SetOrderComplete(order);
-                CheckoutDone(order);
-            }
-
-            return PassToCart(order);
         }
 
         private OutputResult PrintErrorTemplate(Order order, string msg, ErrorType errorType = ErrorType.Undefined)
@@ -298,66 +325,18 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             };
         }
 
-        private OutputResult InitiatePaymentIntent(Order order, Dictionary<string, object> chargeRequest)
-        {
-            if (order.Complete)
-                return PassToCart(order);
-
-            try
-            {
-                LogEvent(order, "Starting payment process");
-
-                string responce = StripeRequest.SendRequest(GetSecretKey(), new()
-                {
-                    CommandType = ApiCommand.CreatePaymentIntent,
-                    Parameters = chargeRequest,
-                    IdempotencyKey = $"{MerchantName}:{order.Id}"
-                });
-                var paymentIntent = Converter.Deserialize<PaymentIntent>(responce);
-
-                string status = paymentIntent.Status.ToString();
-                if (paymentIntent.Status is PaymentIntentStatus.RequiresPaymentMethod)
-                {
-                    LogEvent(order, "Stripe requested tranaction authorization");
-                    var nextAction = paymentIntent.NextAction;
-                    var redirectInfo = nextAction.RedirectToUrl;
-                    string redirectUrl = redirectInfo.Url;
-
-                    return new RedirectOutputResult { RedirectUrl = redirectUrl };
-                }
-
-                CompleteOrder(order, paymentIntent);
-                CheckoutDone(order);
-            }
-            catch (System.Threading.ThreadAbortException)
-            {
-                //do nothing, payment redirected to authorize transaction
-            }
-            catch
-            {
-                CheckoutDone(order);
-            }
-
-            if (!order.Complete)
-                throw new Exception("Called create charge, but order is not set complete.");
-
-            return PassToCart(order);
-        }
-
-        private void CompleteOrder(Order order, PaymentIntent paymentIntent)
+        private void CompleteOrder(Order order, PaymentIntent paymentIntent, PaymentMethod paymentMethod = null)
         {
             if (paymentIntent is null)
                 throw new Exception("Payment intent was not found.");
-
-            string response = StripeRequest.SendRequest(GetSecretKey(), new()
+            
+            if (paymentMethod is null)
             {
-                CommandType = ApiCommand.GetCustomerPaymentMethod,
-                OperatorId = paymentIntent.Customer,
-                OperatorSecondId = paymentIntent.PaymentMethod
-            });
-            PaymentMethod paymentMethod = Converter.Deserialize<PaymentMethod>(response);
+                var service = new StripeService(GetSecretKey());
+                paymentMethod = service.GetPaymentMethod(paymentIntent.CustomerId, paymentIntent.PaymentMethodId);
+            }           
 
-            if (paymentIntent.Status is PaymentIntentStatus.Succeeded)
+            if (paymentIntent.Status is PaymentIntentStatus.Succeeded or PaymentIntentStatus.RequiresCapture)
             {
                 string transactionId = paymentIntent.Id;
                 LogEvent(order, "Payment succeeded with transaction number {0}", transactionId);
@@ -391,15 +370,11 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                 string paymentIntentId = Converter.ToString(Context.Current.Request["payment_intent"]);
                 bool getAllPaymentIntents = string.IsNullOrEmpty(paymentIntentId);
 
-                string response = StripeRequest.SendRequest(GetSecretKey(), new()
-                {
-                    CommandType = getAllPaymentIntents ? ApiCommand.GetAllPaymentIntents : ApiCommand.GetPaymentIntent,
-                    OperatorId = paymentIntentId
-                });
+                var service = new StripeService(GetSecretKey());             
 
                 PaymentIntent paymentIntent = getAllPaymentIntents
-                    ? Converter.Deserialize<PaymentIntents>(response)?.Data?.FirstOrDefault()
-                    : Converter.Deserialize<PaymentIntent>(response);
+                    ? service.GetAllPaymentIntents()?.FirstOrDefault()
+                    : service.GetPaymentIntent(paymentIntentId);
 
                 CompleteOrder(order, paymentIntent);
             }
@@ -428,24 +403,11 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             string[] token = savedCard.Token.Split('|');
             try
             {
-                var request = new StripeRequest(GetSecretKey());
-                if (token.Length > 1)
-                {
-                    request.SendRequest(new()
-                    {
-                        CommandType = ApiCommand.DetachSource,
-                        OperatorId = token[0],
-                        OperatorSecondId = token[1]
-                    });
-                }
-                else
-                {
-                    request.SendRequest(new()
-                    {
-                        CommandType = ApiCommand.DeleteCustomer,
-                        OperatorId = token[0]
-                    });
-                }
+                var service = new StripeService(GetSecretKey());
+                if (token.Length > 1)                
+                    service.DetachPaymentMethod(token[1]);  
+                else                
+                    service.DeleteCustomer(token[0]);                
             }
             catch (Exception ex)
             {
@@ -520,31 +482,26 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
             else
             {
                 string[] token = savedCard.Token.Split('|');
-                var requestCharge = new Dictionary<string, object>
+                var parameters = new Dictionary<string, object>
                 {
                     { "amount", order.Price.PricePIP },
                     { "currency", order.CurrencyCode },
                     { "description", order.Id },
                     { "customer",  token[0] },
                     { "capture_method", CaptureNow ? "automatic" : "manual" },
-                    { "confirm", true}
+                    { "confirm", true }
                 };
 
                 if (token.Length > 1)
                 {
-                    requestCharge["payment_method_types[0]"] = "card";
-                    requestCharge["payment_method"] = token[1];
-                    requestCharge["off_session"] = true;
+                    parameters["payment_method_types[0]"] = "card";
+                    parameters["payment_method"] = token[1];
+                    parameters["off_session"] = true;
                 }
                 try
                 {
-                    string response = StripeRequest.SendRequest(GetSecretKey(), new()
-                    {
-                        CommandType = ApiCommand.CreatePaymentIntent,
-                        Parameters = requestCharge,
-                        IdempotencyKey = $"{MerchantName}:{order.Id}"
-                    });
-                    PaymentIntent paymentIntent = Converter.Deserialize<PaymentIntent>(response);
+                    var service = new StripeService(GetSecretKey());                   
+                    PaymentIntent paymentIntent = service.CreatePaymentIntent($"{MerchantName}:{order.Id}", parameters);
                     CompleteOrder(order, paymentIntent);
                 }
                 finally
@@ -598,24 +555,18 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                     return new OrderCaptureInfo(OrderCaptureInfo.OrderCaptureState.Failed, "Amount to capture should be less or equal to order total");
                 }
 
-                Dictionary<string, object> rqstCapture = null;
+                Dictionary<string, object> parameters = null;
                 // Amount to capture. Specify it explicitly when it less than order amount (can be splitted only once)
                 if (amount <= order.Price.PricePIP)
                 {
-                    rqstCapture = new Dictionary<string, object>
+                    parameters = new Dictionary<string, object>
                     {
-                        ["amount"] = amount
+                        ["amount_to_capture"] = amount
                     };
                 }
 
-                string response = StripeRequest.SendRequest(GetSecretKey(), new()
-                {
-                    CommandType = ApiCommand.CapturePaymentIntent,
-                    OperatorId = order.TransactionNumber,
-                    Parameters = rqstCapture
-                });
-                PaymentIntent paymentIntent = Converter.Deserialize<PaymentIntent>(response);
-
+                var service = new StripeService(GetSecretKey());                
+                PaymentIntent paymentIntent = service.CapturePaymentIntent(order.TransactionNumber, parameters);
 
                 LogEvent(order, "Remote capture status: {0}", paymentIntent.Status.ToString());
 
@@ -759,17 +710,13 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
                     return errorMessage;
                 }
 
-                var reqeuestBody = new Dictionary<string, object> { ["charge"] = order.TransactionNumber };
+                var parameters = new Dictionary<string, object> { ["payment_intent"] = order.TransactionNumber };
 
                 if (amount is not null)
-                    reqeuestBody.Add("amount", amount.ToString());
+                    parameters.Add("amount", amount.ToString());
 
-                string response = StripeRequest.SendRequest(GetSecretKey(), new()
-                {
-                    CommandType = ApiCommand.CreateRefund,
-                    Parameters = reqeuestBody
-                });
-                RefundData refund = Converter.Deserialize<RefundData>(response);
+                var service = new StripeService(GetSecretKey());
+                Refund refund = service.CreateRefund(parameters);
 
                 LogEvent(order, "Remote return status: {0}", refund.Status);
 
@@ -781,8 +728,8 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout
 
                 errorMessage = "Return operation failed.";
                 // Not success
-                if (!string.IsNullOrEmpty(refund.FailureReason))                
-                    errorMessage += $"Reason: {refund.FailureReason}";                
+                if (!string.IsNullOrEmpty(refund.FailureReason))
+                    errorMessage += $"Reason: {refund.FailureReason}";
 
                 LogEvent(order, errorMessage, DebuggingInfoType.ReturnResult);
                 return errorMessage;

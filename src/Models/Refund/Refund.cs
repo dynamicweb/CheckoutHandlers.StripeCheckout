@@ -1,10 +1,9 @@
-﻿using System;
-using System.Runtime.Serialization;
+﻿using System.Runtime.Serialization;
 
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Refund;
 
 [DataContract]
-public class RefundData
+internal sealed class Refund
 {
     [DataMember(Name = "id")]
     public string Id { get; set; }
@@ -22,16 +21,13 @@ public class RefundData
     public string Description { get; set; }
 
     [DataMember(Name = "payment_intent")]
-    public string PaymentIntent { get; set; }
+    public string PaymentIntentId { get; set; }
 
     [DataMember(Name = "status")]
     public string Status { get; set; }
 
     [DataMember(Name = "balance_transaction")]
     public string BalanceTransaction { get; set; }
-
-    [DataMember(Name = "created")]
-    public DateTime Created { get; set; }
 
     [DataMember(Name = "failure_balance_transaction")]
     public string FailureBalanceTransaction { get; set; }

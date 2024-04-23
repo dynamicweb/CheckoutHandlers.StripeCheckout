@@ -1,11 +1,10 @@
-﻿using System;
-using System.Runtime.Serialization;
+﻿using System.Runtime.Serialization;
 
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
 
 //See full object description in the documentation. Link: https://docs.stripe.com/api/payment_intents/object
 [DataContract]
-public class PaymentIntent
+internal sealed class PaymentIntent
 {
     [DataMember(Name = "id")]
     public string Id { get; set; }
@@ -20,13 +19,13 @@ public class PaymentIntent
     public string Currency { get; set; }
 
     [DataMember(Name = "customer")]
-    public string Customer { get; set; }
+    public string CustomerId { get; set; }
 
     [DataMember(Name = "description")]
     public string Description { get; set; }
 
     [DataMember(Name = "payment_method")]
-    public string PaymentMethod { get; set; }
+    public string PaymentMethodId { get; set; }
 
     [DataMember(Name = "receipt_email")]
     public string ReceiptEmail { get; set; }
@@ -40,12 +39,6 @@ public class PaymentIntent
     [DataMember(Name = "amount_received")]
     public int AmountReceived { get; set; }
 
-    [DataMember(Name = "canceled_at")]
-    public DateTime? CanceledAt { get; set; }
-
-    [DataMember(Name = "created")]
-    public DateTime Created { get; set; }
-
     [DataMember(Name = "livemode")]
     public bool Livemode { get; set; }
 
@@ -56,5 +49,5 @@ public class PaymentIntent
     public NextAction NextAction { get; set; }
 
     [DataMember(Name = "cancellation_reason")]
-    public string CancellationReason { get; set; }
+    public string CancellationReason { get; set; }   
 }

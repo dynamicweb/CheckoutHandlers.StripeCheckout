@@ -4,7 +4,7 @@ using System.Runtime.Serialization;
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
 
 [DataContract]
-public class PaymentIntents
+internal sealed class PaymentIntents
 {
     [DataMember(Name = "data")]
     public IEnumerable<PaymentIntent> Data { get; set; }

@@ -3,7 +3,7 @@
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
 
 [DataContract]
-public class RedirectToUrl
+internal sealed class RedirectToUrl
 {
     [DataMember(Name = "return_url")]
     public string ReturnUrl { get; set; }

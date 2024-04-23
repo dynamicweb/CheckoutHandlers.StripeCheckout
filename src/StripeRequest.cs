@@ -1,10 +1,9 @@
 ﻿using Dynamicweb.Core;
-using Dynamicweb.Core.Encoders;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 
@@ -13,7 +12,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
 /// <summary>
 /// Send request to Stripe and get response operations.
 /// </summary>
-internal class StripeRequest
+internal sealed class StripeRequest
 {
     private static readonly string BaseAddress = "https://api.stripe.com";
 
@@ -42,15 +41,17 @@ internal class StripeRequest
                     ApiCommand.CreateCustomer or
                     ApiCommand.CreatePaymentIntent or
                     ApiCommand.CapturePaymentIntent or
-                    ApiCommand.CreateRefund or
-                    ApiCommand.AttachSource => client.PostAsync(apiCommand, new FormUrlEncodedContent(GetParameters(configuration.Parameters))),
+                    ApiCommand.CreatePaymentMethod or
+                    ApiCommand.AttachPaymentMethod or
+                    ApiCommand.DetachPaymentMethod or
+                    ApiCommand.CreateRefund => client.PostAsync(apiCommand, new FormUrlEncodedContent(GetParameters(configuration.Parameters))),
                     //GET
                     ApiCommand.GetAllPaymentIntents or
                     ApiCommand.GetPaymentIntent or
-                    ApiCommand.GetCustomerPaymentMethod => client.GetAsync(apiCommand),
+                    ApiCommand.GetCustomerPaymentMethod or
+                    ApiCommand.GetCustomer => client.GetAsync(apiCommand),
                     //DELETE
-                    ApiCommand.DeleteCustomer or
-                    ApiCommand.DetachSource => client.DeleteAsync(apiCommand),
+                    ApiCommand.DeleteCustomer => client.DeleteAsync(apiCommand),
                     _ => throw new NotSupportedException($"Unknown operation was used. The operation code: {configuration.CommandType}.")
                 };
 
@@ -62,7 +63,7 @@ internal class StripeRequest
 
                         if (!response.IsSuccessStatusCode)
                         {
-                            var content = Converter.Deserialize<Dictionary<string, JsonObject>>(data);
+                            var content = TempConverter.Deserialize<Dictionary<string, JsonObject>>(data);
 
                             string errorMessage = "Unhandled exception. Operation failed.";
                             if (content.TryGetValue("error", out JsonObject error))
@@ -91,36 +92,34 @@ internal class StripeRequest
             PreAuthenticate = true,
             Credentials = new NetworkCredential(secretKey, string.Empty)
         };
+
+        Dictionary<string, string> GetParameters(Dictionary<string, object> parameters)
+        {
+            if (parameters?.Count is null or 0)
+                return new();
+
+            return parameters.ToDictionary(x => x.Key, y => parameters[y.Key]?.ToString() ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+        }
     }
 
     public string SendRequest(CommandConfiguration configuration) => SendRequest(SecretKey, configuration);
-
-    private static Dictionary<string, string> GetParameters(Dictionary<string, object> parameters)
-    {
-        if (parameters?.Count is null or 0)
-            return new();
-
-        var formParameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach ((string key, object value) in parameters)
-            formParameters[key] = Uri.EscapeDataString(value?.ToString() ?? string.Empty);
-
-        return formParameters;
-    }
 
     private static string GetCommandLink(ApiCommand command, string operatorId, string operatorSecondId)
     {
         return command switch
         {
             ApiCommand.CreateCustomer => GetCommandLink("customers"),
+            ApiCommand.GetCustomer => GetCommandLink($"customers/{operatorId}"),
             ApiCommand.DeleteCustomer => GetCommandLink($"customers/{operatorId}"),
             ApiCommand.CreatePaymentIntent or ApiCommand.GetAllPaymentIntents => GetCommandLink("payment_intents"),
             ApiCommand.GetPaymentIntent => GetCommandLink($"payment_intents/{operatorId}"),
             ApiCommand.CapturePaymentIntent => GetCommandLink($"payment_intents/{operatorId}/capture"),
-            ApiCommand.CreateRefund => GetCommandLink("refunds"),
-            ApiCommand.AttachSource => GetCommandLink($"customers/{operatorId}/sources"),
-            ApiCommand.DetachSource => GetCommandLink($"customers/{operatorId}/sources/{operatorSecondId}"),
+            ApiCommand.CreatePaymentMethod => GetCommandLink("payment_methods"),
             ApiCommand.GetCustomerPaymentMethod => GetCommandLink($"customers/{operatorId}/payment_methods/{operatorSecondId}"),
-            _ => string.Empty
+            ApiCommand.AttachPaymentMethod => GetCommandLink($"payment_methods/{operatorId}/attach"),
+            ApiCommand.DetachPaymentMethod => GetCommandLink($"payment_methods/{operatorId}/detach"),
+            ApiCommand.CreateRefund => GetCommandLink("refunds"),
+            _ => throw new NotSupportedException($"The api command is not supported. Command: {command}")
         };
 
         string GetCommandLink(string gateway) => $"{BaseAddress}/v1/{gateway}";
