@@ -2,6 +2,7 @@
 
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Refund;
 
+//See full object description in the documentation. Link: https://docs.stripe.com/api/refunds/object
 [DataContract]
 internal sealed class Refund
 {

@@ -49,5 +49,5 @@ internal sealed class PaymentIntent
     public NextAction NextAction { get; set; }
 
     [DataMember(Name = "cancellation_reason")]
-    public string CancellationReason { get; set; }   
+    public string CancellationReason { get; set; }
 }
