@@ -12,16 +12,9 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
 /// <summary>
 /// Send request to Stripe and get response operations.
 /// </summary>
-internal sealed class StripeRequest
+internal static class StripeRequest
 {
-    private static readonly string BaseAddress = "https://api.stripe.com";
-
-    public string SecretKey { get; set; }
-
-    public StripeRequest(string secretKey)
-    {
-        SecretKey = secretKey;
-    }
+    private static readonly string BaseAddress = "https://api.stripe.com";      
 
     public static string SendRequest(string secretKey, CommandConfiguration configuration)
     {
@@ -101,8 +94,6 @@ internal sealed class StripeRequest
             return parameters.ToDictionary(x => x.Key, y => parameters[y.Key]?.ToString() ?? string.Empty, StringComparer.OrdinalIgnoreCase);
         }
     }
-
-    public string SendRequest(CommandConfiguration configuration) => SendRequest(SecretKey, configuration);
 
     private static string GetCommandLink(ApiCommand command, string operatorId, string operatorSecondId)
     {
