@@ -212,7 +212,9 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
 
             var service = new StripeService(GetSecretKey());
             PaymentIntent paymentIntent = service.CreatePaymentIntent($"{MerchantName}:{order.Id}", parameters);
-            PaymentMethod paymentMethod = service.GetPaymentMethod(paymentIntent.CustomerId, paymentIntent.PaymentMethodId);
+            PaymentMethod paymentMethod = string.IsNullOrEmpty(customerId) 
+                ? service.GetPaymentMethod(paymentIntent.PaymentMethodId)
+                : service.GetPaymentMethod(paymentIntent.CustomerId, paymentIntent.PaymentMethodId);
             SaveTransactionInformation(order, paymentMethod, cardSettings, customerId);
 
             if (paymentIntent.Status is PaymentIntentStatus.RequiresPaymentMethod)
@@ -333,7 +335,9 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
         if (paymentMethod is null)
         {
             var service = new StripeService(GetSecretKey());
-            paymentMethod = service.GetPaymentMethod(paymentIntent.CustomerId, paymentIntent.PaymentMethodId);
+            paymentMethod = string.IsNullOrEmpty(paymentIntent.CustomerId) 
+                ? service.GetPaymentMethod(paymentIntent.PaymentMethodId)
+                : service.GetPaymentMethod(paymentIntent.CustomerId, paymentIntent.PaymentMethodId);
         }
 
         if (paymentIntent.Status is PaymentIntentStatus.Succeeded or PaymentIntentStatus.RequiresCapture)

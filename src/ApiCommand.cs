@@ -51,6 +51,12 @@ internal enum ApiCommand
     CreatePaymentMethod,
 
     /// <summary>
+    /// Retrieves a PaymentMethod object attached to the StripeAccount. To retrieve a payment method attached to a Customer, you should use Retrieve a Customer’s PaymentMethods
+    /// POST /payment_methods/{operatorId}
+    /// </summary>
+    GetPaymentMethod,
+
+    /// <summary>
     /// Retrieves a PaymentMethod object for a given Customer.
     /// GET /customers/{operatorId}/payment_methods/{operatorSecondId}
     /// </summary>

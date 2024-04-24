@@ -1,4 +1,5 @@
-﻿using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
+﻿using Dynamicweb.Core;
+using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Refund;
 using Dynamicweb.Ecommerce.ChecskoutHandlers.StripeCheckout.Models.Customer;
 using System.Collections.Generic;
@@ -30,7 +31,7 @@ internal class StripeService
             OperatorId = paymentIntentId
         });
 
-        return TempConverter.Deserialize<PaymentIntent>(response);
+        return Converter.Deserialize<PaymentIntent>(response);
     }
 
     /// <summary>
@@ -44,7 +45,7 @@ internal class StripeService
             CommandType = ApiCommand.GetAllPaymentIntents
         });
 
-        return TempConverter.Deserialize<PaymentIntents>(response)?.Data;
+        return Converter.Deserialize<PaymentIntents>(response)?.Data;
     }
 
     /// <summary>
@@ -60,7 +61,7 @@ internal class StripeService
             OperatorId = customerId
         });
 
-        return TempConverter.Deserialize<Customer>(response);
+        return Converter.Deserialize<Customer>(response);
     }
 
     /// <summary>
@@ -83,7 +84,7 @@ internal class StripeService
             Parameters = parameters
         });
 
-        return TempConverter.Deserialize<Customer>(response);
+        return Converter.Deserialize<Customer>(response);
     }
 
     /// <summary>
@@ -101,7 +102,7 @@ internal class StripeService
             IdempotencyKey = idempotencyKey
         });
 
-        return TempConverter.Deserialize<PaymentIntent>(response);
+        return Converter.Deserialize<PaymentIntent>(response);
     }
 
     /// <summary>
@@ -119,7 +120,7 @@ internal class StripeService
             Parameters = parameters
         });
 
-        return TempConverter.Deserialize<PaymentIntent>(response);
+        return Converter.Deserialize<PaymentIntent>(response);
     }
 
     /// <summary>
@@ -133,7 +134,7 @@ internal class StripeService
             CommandType = ApiCommand.CreatePaymentMethod,
             Parameters = parameters
         });
-        return TempConverter.Deserialize<PaymentMethod>(response);
+        return Converter.Deserialize<PaymentMethod>(response);
     }
 
     /// <summary>
@@ -150,7 +151,22 @@ internal class StripeService
             OperatorId = customerId,
             OperatorSecondId = paymentMethodId
         });
-        return TempConverter.Deserialize<PaymentMethod>(response);
+        return Converter.Deserialize<PaymentMethod>(response);
+    }
+
+    /// <summary>
+    /// Retrieves a PaymentMethod object attached to the StripeAccount. To retrieve a payment method attached to a Customer, use <see cref="StripeService.GetPaymentMethod(string, string)"/>
+    /// POST /payment_methods/{operatorId}
+    /// </summary>
+    /// <param name="paymentMethodId">Payment method id</param>
+    public PaymentMethod GetPaymentMethod(string paymentMethodId)
+    {
+        string response = StripeRequest.SendRequest(SecretKey, new()
+        {
+            CommandType = ApiCommand.GetPaymentMethod,
+            OperatorId = paymentMethodId,
+        });
+        return Converter.Deserialize<PaymentMethod>(response);
     }
 
     /// <summary>
@@ -204,7 +220,7 @@ internal class StripeService
             Parameters = parameters
         });
 
-        return TempConverter.Deserialize<Refund>(response);
+        return Converter.Deserialize<Refund>(response);
     }
 
 }

@@ -41,6 +41,7 @@ internal static class StripeRequest
                     //GET
                     ApiCommand.GetAllPaymentIntents or
                     ApiCommand.GetPaymentIntent or
+                    ApiCommand.GetPaymentMethod or
                     ApiCommand.GetCustomerPaymentMethod or
                     ApiCommand.GetCustomer => client.GetAsync(apiCommand),
                     //DELETE
@@ -56,7 +57,7 @@ internal static class StripeRequest
 
                         if (!response.IsSuccessStatusCode)
                         {
-                            var content = TempConverter.Deserialize<Dictionary<string, JsonObject>>(data);
+                            var content = Converter.Deserialize<Dictionary<string, JsonObject>>(data);
 
                             string errorMessage = "Unhandled exception. Operation failed.";
                             if (content.TryGetValue("error", out JsonObject error))
@@ -106,6 +107,7 @@ internal static class StripeRequest
             ApiCommand.GetPaymentIntent => GetCommandLink($"payment_intents/{operatorId}"),
             ApiCommand.CapturePaymentIntent => GetCommandLink($"payment_intents/{operatorId}/capture"),
             ApiCommand.CreatePaymentMethod => GetCommandLink("payment_methods"),
+            ApiCommand.GetPaymentMethod => GetCommandLink($"payment_methods/{operatorId}"),
             ApiCommand.GetCustomerPaymentMethod => GetCommandLink($"customers/{operatorId}/payment_methods/{operatorSecondId}"),
             ApiCommand.AttachPaymentMethod => GetCommandLink($"payment_methods/{operatorId}/attach"),
             ApiCommand.DetachPaymentMethod => GetCommandLink($"payment_methods/{operatorId}/detach"),
