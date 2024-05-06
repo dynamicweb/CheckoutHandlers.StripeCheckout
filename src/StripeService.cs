@@ -124,6 +124,29 @@ internal class StripeService
     }
 
     /// <summary>
+    /// Cancels the PaymentIntent. You can cancel a PaymentIntent object when it’s in one of these statuses: requires_payment_method, requires_capture, requires_confirmation, requires_action or, in rare cases, processing.
+    /// After it’s canceled, no additional charges are made by the PaymentIntent and any operations on the PaymentIntent fail with an error. 
+    /// For PaymentIntents with a status of requires_capture, the remaining amount_capturable is automatically refunded.
+    /// POST /payment_intents/{operatorId}/cancel
+    /// </summary>
+    /// <param name="paymentIntentId">Payment intent id.</param>
+    /// <param name="cancellationReason">Cancellation reason. By default is "requested_by_customer".</param>
+    public PaymentIntent CancelPaymentIntent(string paymentIntentId, string cancellationReason = "requested_by_customer")
+    {
+        string response = StripeRequest.SendRequest(SecretKey, new()
+        {
+            CommandType = ApiCommand.CancelPaymentIntent,
+            OperatorId = paymentIntentId,
+            Parameters = new Dictionary<string, object>
+            {
+                ["cancellation_reason"] = cancellationReason
+            }
+        });
+
+        return Converter.Deserialize<PaymentIntent>(response);
+    }
+
+    /// <summary>
     /// Creates a PaymentMethod. Should be used for recurring orders only.
     /// </summary>
     /// <param name="parameters">Parameters</param>

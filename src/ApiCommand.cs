@@ -45,6 +45,12 @@ internal enum ApiCommand
     CapturePaymentIntent,
 
     /// <summary>
+    /// Cancels the PaymentIntent. You can cancel a PaymentIntent object when it’s in one of these statuses: requires_payment_method, requires_capture, requires_confirmation, requires_action or, in rare cases, processing.
+    /// POST /payment_intents/{operatorId}/cancel
+    /// </summary>
+    CancelPaymentIntent,
+
+    /// <summary>
     /// Creates a PaymentMethod object.
     /// POST /payment_methods
     /// </summary>

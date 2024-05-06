@@ -34,6 +34,7 @@ internal static class StripeRequest
                     ApiCommand.CreateCustomer or
                     ApiCommand.CreatePaymentIntent or
                     ApiCommand.CapturePaymentIntent or
+                    ApiCommand.CancelPaymentIntent or
                     ApiCommand.CreatePaymentMethod or
                     ApiCommand.AttachPaymentMethod or
                     ApiCommand.DetachPaymentMethod or
@@ -106,6 +107,7 @@ internal static class StripeRequest
             ApiCommand.CreatePaymentIntent or ApiCommand.GetAllPaymentIntents => GetCommandLink("payment_intents"),
             ApiCommand.GetPaymentIntent => GetCommandLink($"payment_intents/{operatorId}"),
             ApiCommand.CapturePaymentIntent => GetCommandLink($"payment_intents/{operatorId}/capture"),
+            ApiCommand.CancelPaymentIntent => GetCommandLink($"payment_intents/{operatorId}/cancel"),
             ApiCommand.CreatePaymentMethod => GetCommandLink("payment_methods"),
             ApiCommand.GetPaymentMethod => GetCommandLink($"payment_methods/{operatorId}"),
             ApiCommand.GetCustomerPaymentMethod => GetCommandLink($"customers/{operatorId}/payment_methods/{operatorSecondId}"),

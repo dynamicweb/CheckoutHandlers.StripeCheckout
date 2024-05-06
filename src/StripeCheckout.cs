@@ -799,8 +799,50 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
 
     public bool CancelOrder(Order order)
     {
-        string errorMessage = Refund(order);
+        string errorMessage = order.CaptureInfo.State is OrderCaptureInfo.OrderCaptureState.Success
+            ? Refund(order)
+            : CancelPaymentIntent(order);
+
         return string.IsNullOrEmpty(errorMessage);
+    }
+
+    private string CancelPaymentIntent(Order order)
+    {
+        string errorMessage;
+        try
+        {
+            if (string.IsNullOrEmpty(order.Id))
+            {
+                errorMessage = "Order id not set";
+                LogError(null, errorMessage);
+                return errorMessage;
+            }
+
+            if (string.IsNullOrEmpty(order.TransactionNumber))
+            {
+                errorMessage = "Transaction number not set";
+                LogError(null, errorMessage);
+                return errorMessage;
+            }
+
+            var service = new StripeService(GetSecretKey());
+            PaymentIntent paymentIntent = service.CancelPaymentIntent(order.TransactionNumber);
+            if (paymentIntent.Status is PaymentIntentStatus.Canceled)
+            {
+                LogEvent(order, "Cancel operation successful.");
+                return null;
+            }
+
+            errorMessage = "Cancel operation failed.";
+            LogEvent(order, errorMessage);
+            return errorMessage;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unexpected error during cancel operation: {ex.Message}.";
+            LogError(order, ex, errorMessage);
+            return errorMessage;
+        }
     }
 
     #endregion
