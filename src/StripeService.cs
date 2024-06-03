@@ -40,7 +40,7 @@ internal sealed class StripeService
         if (!string.IsNullOrEmpty(error.DeclineCode))
             errorMessage.Append($" Decline code: {error.DeclineCode}.");
         if (!string.IsNullOrEmpty(error.Message))
-            errorMessage.Append(@$" Message: ""{error.Message}"".");
+            errorMessage.Append($@" Message: ""{error.Message}"".");
         if (!string.IsNullOrEmpty(error.ParameterName))
             errorMessage.Append($" Parameter name: {error.ParameterName}.");
         if (!string.IsNullOrEmpty(error.LogUrl))
