@@ -50,4 +50,7 @@ internal sealed class PaymentIntent
 
     [DataMember(Name = "cancellation_reason")]
     public string CancellationReason { get; set; }
+
+    [DataMember(Name = "last_payment_error")]
+    public StripeError LastPaymentError { get; set; }
 }

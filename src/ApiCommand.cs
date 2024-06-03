@@ -51,6 +51,24 @@ internal enum ApiCommand
     CancelPaymentIntent,
 
     /// <summary>
+    /// Creates SetupIntent. After you create the SetupIntent, attach a payment method and confirm it to collect any required permissions to charge the payment method later.
+    /// POST /setup_intents
+    /// </summary>
+    CreateSetupIntent,
+
+    /// <summary>
+    /// Сonfirms SetupIntent. Confirm that your customer intends to set up the current or provided payment method. 
+    /// POST /setup_intents/{operatorId}/confirm
+    /// </summary>
+    ConfirmSetupIntent,
+
+    /// <summary>
+    /// Gets SetupIntent. Retrieves the details of a SetupIntent that has previously been created.
+    /// GET /setup_intents/{operatorId}
+    /// </summary>
+    GetSetupIntent,
+
+    /// <summary>
     /// Creates a PaymentMethod object.
     /// POST /payment_methods
     /// </summary>

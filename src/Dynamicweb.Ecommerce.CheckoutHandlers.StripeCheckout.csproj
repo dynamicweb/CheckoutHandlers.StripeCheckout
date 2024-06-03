@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<VersionPrefix>10.1.0</VersionPrefix>
+		<VersionPrefix>10.1.1</VersionPrefix>
 		<AssemblyVersion>1.0.0.0</AssemblyVersion>
 		<Title>Stripe Checkout</Title>
 		<Description>Stripe Checkout handler</Description>
@@ -23,6 +23,16 @@
 		<SymbolPackageFormat>snupkg</SymbolPackageFormat>
 		<PackageIcon>stripe-logo.png</PackageIcon>
 	</PropertyGroup>
+	<ItemGroup>
+	  <None Remove="Updates\checkouthandler_error.html" />
+	  <None Remove="Updates\Post_custom.html" />
+	  <None Remove="Updates\Post_simple.html" />
+	</ItemGroup>
+	<ItemGroup>
+	  <EmbeddedResource Include="Updates\checkouthandler_error.html" />
+	  <EmbeddedResource Include="Updates\Post_custom.html" />
+	  <EmbeddedResource Include="Updates\Post_simple.html" />
+	</ItemGroup>
 	<ItemGroup>
 		<PackageReference Include="Dynamicweb" Version="10.3.4" />
 		<PackageReference Include="Dynamicweb.Core" Version="10.3.4" />
