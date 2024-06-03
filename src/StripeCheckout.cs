@@ -14,6 +14,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Threading;
 
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
 
@@ -230,7 +231,7 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
             CompleteOrder(order, paymentIntent, cardSettings);
             CheckoutDone(order);
         }
-        catch (System.Threading.ThreadAbortException)
+        catch (ThreadAbortException)
         {
             //do nothing, payment redirected to authorize transaction
         }
@@ -297,6 +298,10 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
                 SetOrderComplete(order);
                 CheckoutDone(order);
             }
+        }
+        catch (ThreadAbortException)
+        {
+            //do nothing, payment redirected to authorize transaction
         }
         catch (Exception ex)
         {
