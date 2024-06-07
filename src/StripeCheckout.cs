@@ -640,14 +640,15 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
 
             if (paymentIntent.Status is PaymentIntentStatus.Succeeded)
             {
+                double capturedAmount = amount / 100d;
                 if (order.Price.PricePIP == amount)
                 {
-                    LogEvent(order, "Capture successful", DebuggingInfoType.CaptureResult);
+                    LogEvent(order, string.Format("Message=\"{0}\" Amount=\"{1:f2}\"", "Capture successful", capturedAmount), DebuggingInfoType.CaptureResult);
                     return new OrderCaptureInfo(OrderCaptureInfo.OrderCaptureState.Success, "Capture successful");
                 }
                 else
                 {
-                    LogEvent(order, string.Format("Message=\"{0}\" Amount=\"{1:f2}\"", "Split capture(final)", amount / 100f), DebuggingInfoType.CaptureResult);
+                    LogEvent(order, string.Format("Message=\"{0}\" Amount=\"{1:f2}\"", "Split capture(final)", capturedAmount), DebuggingInfoType.CaptureResult);
                     return new OrderCaptureInfo(OrderCaptureInfo.OrderCaptureState.Success, "Split capture successful");
                 }
             }
