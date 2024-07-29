@@ -1,10 +1,10 @@
 ﻿using Dynamicweb.Core;
+using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
@@ -14,7 +14,7 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
 /// </summary>
 internal static class StripeRequest
 {
-    private static readonly string BaseAddress = "https://api.stripe.com";      
+    private static readonly string BaseAddress = "https://api.stripe.com";
 
     public static string SendRequest(string secretKey, CommandConfiguration configuration)
     {
@@ -35,6 +35,8 @@ internal static class StripeRequest
                     ApiCommand.CreatePaymentIntent or
                     ApiCommand.CapturePaymentIntent or
                     ApiCommand.CancelPaymentIntent or
+                    ApiCommand.CreateSetupIntent or
+                    ApiCommand.ConfirmSetupIntent or
                     ApiCommand.CreatePaymentMethod or
                     ApiCommand.AttachPaymentMethod or
                     ApiCommand.DetachPaymentMethod or
@@ -42,6 +44,7 @@ internal static class StripeRequest
                     //GET
                     ApiCommand.GetAllPaymentIntents or
                     ApiCommand.GetPaymentIntent or
+                    ApiCommand.GetSetupIntent or
                     ApiCommand.GetPaymentMethod or
                     ApiCommand.GetCustomerPaymentMethod or
                     ApiCommand.GetCustomer => client.GetAsync(apiCommand),
@@ -58,15 +61,11 @@ internal static class StripeRequest
 
                         if (!response.IsSuccessStatusCode)
                         {
-                            var content = Converter.Deserialize<Dictionary<string, JsonObject>>(data);
-
                             string errorMessage = "Unhandled exception. Operation failed.";
-                            if (content.TryGetValue("error", out JsonObject error))
-                            {
-                                errorMessage = string.IsNullOrEmpty(Converter.ToString(error["code"]))
-                                    ? Converter.ToString(error["message"])
-                                    : $"Error code: {Converter.ToString(error["code"])}. {Converter.ToString(error["message"])}";
-                            }
+
+                            var errorResponse = Converter.Deserialize<StripeErrorResponse>(data);
+                            if (errorResponse.Error is not null)
+                                errorMessage = StripeService.GetErrorMessage(errorResponse.Error);
 
                             throw new Exception(errorMessage);
                         }
@@ -108,6 +107,9 @@ internal static class StripeRequest
             ApiCommand.GetPaymentIntent => GetCommandLink($"payment_intents/{operatorId}"),
             ApiCommand.CapturePaymentIntent => GetCommandLink($"payment_intents/{operatorId}/capture"),
             ApiCommand.CancelPaymentIntent => GetCommandLink($"payment_intents/{operatorId}/cancel"),
+            ApiCommand.CreateSetupIntent => GetCommandLink("setup_intents"),
+            ApiCommand.GetSetupIntent => GetCommandLink($"setup_intents/{operatorId}"),
+            ApiCommand.ConfirmSetupIntent => GetCommandLink($"/setup_intents/{operatorId}/confirm"),
             ApiCommand.CreatePaymentMethod => GetCommandLink("payment_methods"),
             ApiCommand.GetPaymentMethod => GetCommandLink($"payment_methods/{operatorId}"),
             ApiCommand.GetCustomerPaymentMethod => GetCommandLink($"customers/{operatorId}/payment_methods/{operatorSecondId}"),

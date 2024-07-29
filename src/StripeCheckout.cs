@@ -1,7 +1,6 @@
 ﻿using Dynamicweb.Core;
 using Dynamicweb.Ecommerce.Cart;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
-using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentMethod;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Refund;
 using Dynamicweb.Ecommerce.ChecskoutHandlers.StripeCheckout.Models.Customer;
 using Dynamicweb.Ecommerce.Orders;
@@ -15,6 +14,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Threading;
 
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
 
@@ -123,6 +123,9 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
                 case "Complete":
                     return StateComplete(order);
 
+                case "CompleteSetup":
+                    return StateCompleteSetup(order);
+
                 default:
                     string msg = string.Format("Unknown Stripe state: '{0}'", action);
                     LogError(order, msg);
@@ -158,7 +161,7 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
         if (!order.IsRecurringOrderTemplate)
             return InitiatePaymentIntent(order, token, email, cardSettings, customer?.Id);
         else
-            return CreatePaymentMethod(order, token, cardSettings, customer.Id);
+            return CreateSetupIntent(order, token, cardSettings, customer.Id);
 
         Customer SendCustomerRequest()
         {
@@ -211,32 +214,31 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
             parameters["payment_method_data[card][token]"] = token;
 
             var service = new StripeService(GetSecretKey());
-            PaymentIntent paymentIntent = service.CreatePaymentIntent($"{MerchantName}:{order.Id}", parameters);
-            PaymentMethod paymentMethod = string.IsNullOrEmpty(customerId) 
-                ? service.GetPaymentMethod(paymentIntent.PaymentMethodId)
-                : service.GetPaymentMethod(paymentIntent.CustomerId, paymentIntent.PaymentMethodId);
-            SaveTransactionInformation(order, paymentMethod, cardSettings, customerId);
+            string idempotencyKey = IdempotencyKeyHelper.GetKey(ApiCommand.CreatePaymentIntent, MerchantName, order.Id);
+            PaymentIntent paymentIntent = service.CreatePaymentIntent(idempotencyKey, parameters);
 
             if (paymentIntent.Status is PaymentIntentStatus.RequiresPaymentMethod)
+                throw new Exception("Payment method was not attached to PaymentIntent (Stripe object). The payment operation could not be completed.");
+
+            if (paymentIntent.Status is PaymentIntentStatus.RequiresAction)
             {
                 LogEvent(order, "Stripe requested transaction authorization");
-                var nextAction = paymentIntent.NextAction;
-                var redirectInfo = nextAction.RedirectToUrl;
-                string redirectUrl = redirectInfo.Url;
+                string redirectUrl = paymentIntent.NextAction.RedirectToUrl.Url;
 
                 return new RedirectOutputResult { RedirectUrl = redirectUrl };
             }
 
-            CompleteOrder(order, paymentIntent, paymentMethod);
+            CompleteOrder(order, paymentIntent, cardSettings);
             CheckoutDone(order);
         }
-        catch (System.Threading.ThreadAbortException)
+        catch (ThreadAbortException)
         {
             //do nothing, payment redirected to authorize transaction
         }
-        catch
+        catch (Exception ex)
         {
             CheckoutDone(order);
+            throw new Exception(ex.Message);
         }
 
         if (!order.Complete)
@@ -245,58 +247,98 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
         return PassToCart(order);
     }
 
-    private OutputResult CreatePaymentMethod(Order order, string token, BasePaymentCardSettings cardSettings, string customerId)
+    private OutputResult CreateSetupIntent(Order order, string token, BasePaymentCardSettings cardSettings, string customerId)
     {
-        LogEvent(order, "Creating Stripe payment method.");
-        var service = new StripeService(GetSecretKey());
+        if (!order.IsRecurringOrderTemplate)
+            throw new Exception("SetupIntent (Stripe object) is only for recurring orders setup.");
 
-        var parameters = new Dictionary<string, object>
+        try
         {
-            ["type"] = "card",
-            ["card[token]"] = token
-        };
+            LogEvent(order, "Creating Stripe payment method.");
+            var service = new StripeService(GetSecretKey());
 
-        LogEvent(order, "Attaching Stripe payment method to a customer.");
+            var parameters = new Dictionary<string, object>
+            {
+                ["type"] = "card",
+                ["card[token]"] = token
+            };
 
-        PaymentMethod paymentMethod = service.CreatePaymentMethod(parameters);
-        service.AttachPaymentMethod(paymentMethod.Id, customerId);
-        SaveTransactionInformation(order, paymentMethod, cardSettings, customerId);
+            LogEvent(order, "Attaching Stripe payment method to a customer.");
 
-        SetOrderComplete(order);
-        CheckoutDone(order);
+            string idempotencyKey = IdempotencyKeyHelper.GetKey(ApiCommand.CreatePaymentMethod, MerchantName, order.Id);
+            PaymentMethod paymentMethod = service.CreatePaymentMethod(idempotencyKey, parameters);
+
+            parameters = new()
+            {
+                ["confirm"] = true,
+                ["customer"] = customerId,
+                ["payment_method"] = paymentMethod.Id,
+                ["usage"] = "off_session",
+                ["return_url"] = $"{GetBaseUrl(order)}&stripeToken={token}&Action=CompleteSetup&CardTokenName={cardSettings.Name}"
+            };
+
+            idempotencyKey = IdempotencyKeyHelper.GetKey(ApiCommand.CreateSetupIntent, MerchantName, order.Id);
+            SetupIntent setupIntent = service.CreateSetupIntent(idempotencyKey, parameters);
+            if (setupIntent.Status is PaymentIntentStatus.RequiresPaymentMethod)
+                throw new Exception("Payment method was not attached to SetupIntent object. The payment operation could not be completed.");
+
+            if (setupIntent.Status is PaymentIntentStatus.RequiresAction)
+            {
+                LogEvent(order, "Stripe requested transaction authorization");
+                var redirectUrl = setupIntent.NextAction.RedirectToUrl.Url;
+
+                return new RedirectOutputResult { RedirectUrl = redirectUrl };
+            }
+
+            paymentMethod = service.GetPaymentMethod(setupIntent.CustomerId, setupIntent.PaymentMethodId);
+            SavePaymentCard(order, paymentMethod, cardSettings);
+
+            if (setupIntent.Status is PaymentIntentStatus.Succeeded)
+            {
+                SetOrderComplete(order);
+                CheckoutDone(order);
+            }
+        }
+        catch (ThreadAbortException)
+        {
+            //do nothing, payment redirected to authorize transaction
+        }
+        catch (Exception ex)
+        {
+            CheckoutDone(order);
+            throw new Exception(ex.Message);
+        }        
+
+        if (!order.Complete)
+            throw new Exception("Setup intent (Stripe object) was created, but order is not set complete.");
 
         return PassToCart(order);
     }
 
-    private void SaveTransactionInformation(Order order, PaymentMethod paymentMethod, BasePaymentCardSettings cardSettings, string customerId)
+    private void SavePaymentCard(Order order, PaymentMethod paymentMethod, BasePaymentCardSettings cardSettings)
     {
-        Card card = paymentMethod.Card;
+        if (cardSettings?.IsSaveNeeded is not true)
+            return;
 
-        if (!string.IsNullOrEmpty(card.Brand) && !string.IsNullOrEmpty(card.Last4))
+        if (UserContext.Current.User is User user)
         {
-            order.TransactionCardType = card.Brand;
-            order.TransactionCardNumber = HideCardNumber(Converter.ToString(card.Last4));
-        }
-
-        if (cardSettings.IsSaveNeeded)
-        {
-            if (UserContext.Current.User is User user)
+            var paymentCard = new PaymentCardToken
             {
-                var paymentCard = new PaymentCardToken
-                {
-                    UserID = user.ID,
-                    PaymentID = order.PaymentMethodId,
-                    Name = cardSettings.Name,
-                    CardType = order.TransactionCardType,
-                    Identifier = order.TransactionCardNumber,
-                    Token = string.Format("{0}|{1}", customerId, paymentMethod.Id),
-                    UsedDate = DateTime.Now,
-                    ExpirationMonth = card.ExpirationMonth,
-                    ExpirationYear = card.ExpirationYear
-                };
-                Services.PaymentCard.Save(paymentCard);
-                order.SavedCardId = paymentCard.ID;
-            }
+                UserID = user.ID,
+                PaymentID = order.PaymentMethodId,
+                Name = cardSettings.Name,
+                CardType = paymentMethod.Card?.Brand ?? "Unknown",
+                Identifier = HideCardNumber(paymentMethod.Card?.Last4),
+                Token = string.Format("{0}|{1}", paymentMethod.Customer, paymentMethod.Id),
+                UsedDate = DateTime.Now,
+                ExpirationMonth = paymentMethod.Card?.ExpirationMonth,
+                ExpirationYear = paymentMethod.Card?.ExpirationYear
+            };
+            Services.PaymentCard.Save(paymentCard);
+            order.SavedCardId = paymentCard.ID;
+            order.TransactionCardType = paymentCard.CardType;
+            order.TransactionCardNumber = paymentCard.Identifier;
+
             Services.Orders.Save(order);
         }
     }
@@ -327,32 +369,27 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
         };
     }
 
-    private void CompleteOrder(Order order, PaymentIntent paymentIntent, PaymentMethod paymentMethod = null)
+    private void CompleteOrder(Order order, PaymentIntent paymentIntent, BasePaymentCardSettings cardSettings)
     {
         if (paymentIntent is null)
-            throw new Exception("Payment intent was not found.");
+            throw new Exception("Payment intent (Stripe object) was not found.");
 
-        if (paymentMethod is null)
-        {
-            var service = new StripeService(GetSecretKey());
-            paymentMethod = string.IsNullOrEmpty(paymentIntent.CustomerId) 
-                ? service.GetPaymentMethod(paymentIntent.PaymentMethodId)
-                : service.GetPaymentMethod(paymentIntent.CustomerId, paymentIntent.PaymentMethodId);
-        }
+        var service = new StripeService(GetSecretKey());
+        PaymentMethod paymentMethod = string.IsNullOrEmpty(paymentIntent.CustomerId)
+            ? service.GetPaymentMethod(paymentIntent.PaymentMethodId)
+            : service.GetPaymentMethod(paymentIntent.CustomerId, paymentIntent.PaymentMethodId);
+
+        SavePaymentCard(order, paymentMethod, cardSettings);
+        order.TransactionCardType = paymentMethod.Card?.Brand ?? "Unknown";
+        order.TransactionCardNumber = HideCardNumber(paymentMethod.Card?.Last4);
 
         if (paymentIntent.Status is PaymentIntentStatus.Succeeded or PaymentIntentStatus.RequiresCapture)
         {
             string transactionId = paymentIntent.Id;
             LogEvent(order, "Payment succeeded with transaction number {0}", transactionId);
 
-            string transactionCardType = paymentMethod.Card?.Brand;
-            string transactionCardNumber = paymentMethod.Card?.Last4;
             bool captured = paymentIntent.AmountCapturable == 0;
-            double transactionAmount = paymentIntent.Amount / 100d;
-
-            order.TransactionCardType = transactionCardType;
-            order.TransactionCardNumber = HideCardNumber(transactionCardNumber);
-            order.TransactionAmount = transactionAmount;
+            order.TransactionAmount = paymentIntent.Amount / 100d;
             order.TransactionStatus = "Succeeded";
 
             if (captured)
@@ -365,22 +402,25 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
             SetOrderComplete(order, transactionId);
         }
     }
-
+    
     private OutputResult StateComplete(Order order)
     {
         try
         {
             LogEvent(order, "Retrieving payment intent object");
             string paymentIntentId = Converter.ToString(Context.Current.Request["payment_intent"]);
-            bool getAllPaymentIntents = string.IsNullOrEmpty(paymentIntentId);
 
             var service = new StripeService(GetSecretKey());
+            PaymentIntent paymentIntent = service.GetPaymentIntent(paymentIntentId);
 
-            PaymentIntent paymentIntent = getAllPaymentIntents
-                ? service.GetAllPaymentIntents()?.FirstOrDefault()
-                : service.GetPaymentIntent(paymentIntentId);
+            if (paymentIntent.LastPaymentError is not null)
+            {
+                string errorMessage = StripeService.GetErrorMessage(paymentIntent.LastPaymentError);
+                throw new Exception(errorMessage);
+            }
 
-            CompleteOrder(order, paymentIntent);
+            var cardSettings = new BasePaymentCardSettings(order);
+            CompleteOrder(order, paymentIntent, cardSettings);
         }
         finally
         {
@@ -392,6 +432,44 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
 
         return PassToCart(order);
     }
+
+    private OutputResult StateCompleteSetup(Order order)
+    {
+        if (!order.IsRecurringOrderTemplate)
+            throw new Exception("SetupIntent (Stripe object) is only for recurring orders setup.");
+
+        try
+        {
+            LogEvent(order, "Retrieving setup intent object");
+            string setupIntentId = Converter.ToString(Context.Current.Request["setup_intent"]);
+
+            var service = new StripeService(GetSecretKey());
+            SetupIntent setupIntent = service.GetSetupIntent(setupIntentId);
+
+            if (setupIntent.LastSetupError is not null)
+            {
+                string errorMessage = StripeService.GetErrorMessage(setupIntent.LastSetupError);
+                throw new Exception(errorMessage);
+            }
+
+            PaymentMethod paymentMethod = service.GetPaymentMethod(setupIntent.CustomerId, setupIntent.PaymentMethodId);
+            var cardSettings = new BasePaymentCardSettings(order);
+            SavePaymentCard(order, paymentMethod, cardSettings);
+
+            if (setupIntent.Status is PaymentIntentStatus.Succeeded)
+                SetOrderComplete(order);
+        }
+        finally
+        {
+            CheckoutDone(order);
+        } 
+
+        if (!order.Complete)
+            throw new Exception("Setup intent (Stripe object) was created, but order is not set complete.");
+
+        return PassToCart(order);
+    }
+
 
     #region ISavedCard interface
 
@@ -434,7 +512,7 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
 
         try
         {
-            if (UseSavedCardInternal(order, true) is RedirectOutputResult redirectResult)
+            if (UseSavedCardInternal(order) is RedirectOutputResult redirectResult)
                 RedirectToCart(redirectResult);
 
             return string.Empty;
@@ -465,7 +543,7 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
     /// <returns>True, if saving card is supported</returns>
     public bool SavedCardSupported(Order order) => true;
 
-    private OutputResult UseSavedCardInternal(Order order, bool alwaysPassToCart)
+    private OutputResult UseSavedCardInternal(Order order)
     {
         PaymentCardToken savedCard = Services.PaymentCard.GetById(order.SavedCardId);
         if (savedCard is null || order.CustomerAccessUserId != savedCard.UserID)
@@ -473,53 +551,39 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
 
         LogEvent(order, "Using saved card({0}) with id: {1}", savedCard.Identifier, savedCard.ID);
 
-        if (order.IsRecurringOrderTemplate)
+        string[] token = savedCard.Token.Split('|');
+        var parameters = new Dictionary<string, object>
         {
-            order.TransactionCardType = savedCard.CardType;
-            order.TransactionCardNumber = savedCard.Identifier;
-            SetOrderComplete(order);
+            { "amount", order.Price.PricePIP },
+            { "currency", order.CurrencyCode },
+            { "description", order.Id },
+            { "customer",  token[0] },
+            { "capture_method", CaptureNow ? "automatic" : "manual" },
+            { "confirm", true }
+        };
+
+        if (token.Length > 1)
+        {
+            parameters["payment_method_types[0]"] = "card";
+            parameters["payment_method"] = token[1];
+            parameters["off_session"] = true;
+        }
+        try
+        {
+            var service = new StripeService(GetSecretKey());
+            var idempotencyKey = IdempotencyKeyHelper.GetKey(ApiCommand.CreatePaymentIntent, MerchantName, order.Id);
+            PaymentIntent paymentIntent = service.CreatePaymentIntent(idempotencyKey, parameters);
+            CompleteOrder(order, paymentIntent, null);
+        }
+        finally
+        {
             CheckoutDone(order);
-
-            if (alwaysPassToCart)
-                return PassToCart(order);
-        }
-        else
-        {
-            string[] token = savedCard.Token.Split('|');
-            var parameters = new Dictionary<string, object>
-            {
-                { "amount", order.Price.PricePIP },
-                { "currency", order.CurrencyCode },
-                { "description", order.Id },
-                { "customer",  token[0] },
-                { "capture_method", CaptureNow ? "automatic" : "manual" },
-                { "confirm", true }
-            };
-
-            if (token.Length > 1)
-            {
-                parameters["payment_method_types[0]"] = "card";
-                parameters["payment_method"] = token[1];
-                parameters["off_session"] = true;
-            }
-            try
-            {
-                var service = new StripeService(GetSecretKey());
-                PaymentIntent paymentIntent = service.CreatePaymentIntent($"{MerchantName}:{order.Id}", parameters);
-                CompleteOrder(order, paymentIntent);
-            }
-            finally
-            {
-                CheckoutDone(order);
-            }
-
-            if (!order.Complete)
-                throw new Exception("Called create charge, but order is not set complete.");
-
-            return PassToCart(order);
         }
 
-        return ContentOutputResult.Empty;
+        if (!order.Complete)
+            throw new Exception("Called create charge, but order is not set complete.");
+
+        return PassToCart(order);
     }
 
     #endregion
@@ -576,14 +640,15 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
 
             if (paymentIntent.Status is PaymentIntentStatus.Succeeded)
             {
+                double capturedAmount = amount / 100d;
                 if (order.Price.PricePIP == amount)
                 {
-                    LogEvent(order, "Capture successful", DebuggingInfoType.CaptureResult);
+                    LogEvent(order, string.Format("Message=\"{0}\" Amount=\"{1:f2}\"", "Capture successful", capturedAmount), DebuggingInfoType.CaptureResult);
                     return new OrderCaptureInfo(OrderCaptureInfo.OrderCaptureState.Success, "Capture successful");
                 }
                 else
                 {
-                    LogEvent(order, string.Format("Message=\"{0}\" Amount=\"{1:f2}\"", "Split capture(final)", amount / 100f), DebuggingInfoType.CaptureResult);
+                    LogEvent(order, string.Format("Message=\"{0}\" Amount=\"{1:f2}\"", "Split capture(final)", capturedAmount), DebuggingInfoType.CaptureResult);
                     return new OrderCaptureInfo(OrderCaptureInfo.OrderCaptureState.Success, "Split capture successful");
                 }
             }
@@ -633,7 +698,7 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
 
         try
         {
-            UseSavedCardInternal(order, false);
+            UseSavedCardInternal(order);
             LogEvent(order, "Recurring succeeded");
         }
         catch (Exception ex)

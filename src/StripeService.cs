@@ -1,21 +1,52 @@
 ﻿using Dynamicweb.Core;
+using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Refund;
 using Dynamicweb.Ecommerce.ChecskoutHandlers.StripeCheckout.Models.Customer;
 using System.Collections.Generic;
+using System.Text;
 
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
 
 /// <summary>
 /// The service to interact with Stripe API
 /// </summary>
-internal class StripeService
+internal sealed class StripeService
 {
     public string SecretKey { get; set; }
 
     public StripeService(string secretKey)
     {
         SecretKey = secretKey;
+    }
+
+    /// <summary>
+    /// Gets the error data for printing.
+    /// </summary>
+    /// <param name="error">Error response data</param>
+    public static string GetErrorMessage(StripeError error)
+    {
+        var errorMessage = new StringBuilder(error.ErrorType switch
+        {
+            StripeErrorType.ApiError => "Api error.",
+            StripeErrorType.IdempotencyError => "Idempotency error.",
+            StripeErrorType.InvalidRequestError => "Invalid request error.",
+            StripeErrorType.CardError => "Card error.",
+            _ => "Unhandled exception."
+        });
+
+        if (!string.IsNullOrEmpty(error.Code))
+            errorMessage.Append($" Error code: {error.Code}.");
+        if (!string.IsNullOrEmpty(error.DeclineCode))
+            errorMessage.Append($" Decline code: {error.DeclineCode}.");
+        if (!string.IsNullOrEmpty(error.Message))
+            errorMessage.Append($@" Message: ""{error.Message}"".");
+        if (!string.IsNullOrEmpty(error.ParameterName))
+            errorMessage.Append($" Parameter name: {error.ParameterName}.");
+        if (!string.IsNullOrEmpty(error.LogUrl))
+            errorMessage.Append($" Log url: {error.LogUrl}");
+
+        return errorMessage.ToString();
     }
 
     /// <summary>
@@ -147,15 +178,69 @@ internal class StripeService
     }
 
     /// <summary>
+    /// Creates a SetupIntent object. After you create the SetupIntent, attach a payment method and confirm it to collect any required permissions to charge the payment method later.
+    /// POST /setup_intents
+    /// </summary>
+    /// <param name="idempotencyKey">Idempotency key</param>
+    /// <param name="parameters">Parameters</param>
+    public SetupIntent CreateSetupIntent(string idempotencyKey, Dictionary<string, object> parameters)
+    {
+        string response = StripeRequest.SendRequest(SecretKey, new()
+        {
+            CommandType = ApiCommand.CreateSetupIntent,
+            Parameters = parameters,
+            IdempotencyKey = idempotencyKey
+        });
+
+        return Converter.Deserialize<SetupIntent>(response);
+    }
+   
+    /// <summary>
+    /// Gets a SetupIntent object. Retrieves the details of a SetupIntent that has previously been created.
+    /// GET /setup_intents/{operatorId}
+    /// </summary>
+    /// <param name="setupIntentId">Setup intent id</param>
+    public SetupIntent GetSetupIntent(string setupIntentId)
+    {
+        string response = StripeRequest.SendRequest(SecretKey, new()
+        {
+            CommandType = ApiCommand.GetSetupIntent,
+            OperatorId = setupIntentId
+        });
+
+        return Converter.Deserialize<SetupIntent>(response);
+    }
+
+    /// <summary>
+    /// Confirms a SetupIntent object. Confirms that your customer intends to set up the current or provided payment method.
+    /// </summary>
+    /// <param name="idempotencyKey">Idempotency key</param>
+    /// <param name="parameters">Parameters</param>
+    /// <returns></returns>
+    public SetupIntent ConfirmSetupIntent(string idempotencyKey, Dictionary<string, object> parameters)
+    {
+        string response = StripeRequest.SendRequest(SecretKey, new()
+        {
+            CommandType = ApiCommand.ConfirmSetupIntent,
+            Parameters = parameters,
+            IdempotencyKey = idempotencyKey
+        });
+
+        return Converter.Deserialize<SetupIntent>(response);
+    }
+
+    /// <summary>
     /// Creates a PaymentMethod. Should be used for recurring orders only.
     /// </summary>
+    /// <param name="idempotencyKey">Idempotency key</param>
     /// <param name="parameters">Parameters</param>
-    public PaymentMethod CreatePaymentMethod(Dictionary<string, object> parameters)
+    public PaymentMethod CreatePaymentMethod(string idempotencyKey, Dictionary<string, object> parameters)
     {
         string response = StripeRequest.SendRequest(SecretKey, new()
         {
             CommandType = ApiCommand.CreatePaymentMethod,
-            Parameters = parameters
+            Parameters = parameters,
+            IdempotencyKey = idempotencyKey
         });
         return Converter.Deserialize<PaymentMethod>(response);
     }
@@ -198,15 +283,19 @@ internal class StripeService
     /// </summary>
     /// <param name="paymentMethodId">Payment method id</param>
     /// <param name="customerId">Customer id</param>
-    public void AttachPaymentMethod(string paymentMethodId, string customerId) => StripeRequest.SendRequest(SecretKey, new()
+    public PaymentMethod AttachPaymentMethod(string paymentMethodId, string customerId)
     {
-        CommandType = ApiCommand.AttachPaymentMethod,
-        OperatorId = paymentMethodId,
-        Parameters = new Dictionary<string, object>
+        string response = StripeRequest.SendRequest(SecretKey, new()
         {
-            ["customer"] = customerId
-        }
-    });
+            CommandType = ApiCommand.AttachPaymentMethod,
+            OperatorId = paymentMethodId,
+            Parameters = new Dictionary<string, object>
+            {
+                ["customer"] = customerId
+            }
+        });
+        return Converter.Deserialize<PaymentMethod>(response);
+    }
 
     /// <summary>
     /// Detaches a PaymentMethod object from a Customer. After a PaymentMethod is detached, it can no longer be used for a payment or re-attached to a Customer.
@@ -245,5 +334,4 @@ internal class StripeService
 
         return Converter.Deserialize<Refund>(response);
     }
-
 }
