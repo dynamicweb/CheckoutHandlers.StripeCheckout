@@ -7,15 +7,15 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentInt
 [DataContract]
 internal sealed class PaymentMethod
 {
-	[DataMember(Name = "id")]
-	public string Id { get; set; }
+    [DataMember(Name = "id")]
+    public string Id { get; set; }
 
-	[DataMember(Name = "customer")]
-	public string Customer { get; set; }
+    [DataMember(Name = "customer")]
+    public string Customer { get; set; }
 
-	[DataMember(Name = "type")]
-	public string Type { get; set; }
+    [DataMember(Name = "type")]
+    public string Type { get; set; }
 
-	[DataMember(Name = "card")]
-	public Card Card { get; set; }
+    [DataMember(Name = "card")]
+    public Card Card { get; set; }
 }

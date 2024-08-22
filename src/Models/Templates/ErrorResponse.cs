@@ -6,6 +6,6 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Templates;
 [DataContract]
 public class ErrorResponse
 {
-	[DataMember(Name = "errorMessage", EmitDefaultValue = false)]
-	public string ErrorMessage { get; set; }
+    [DataMember(Name = "errorMessage", EmitDefaultValue = false)]
+    public string ErrorMessage { get; set; }
 }

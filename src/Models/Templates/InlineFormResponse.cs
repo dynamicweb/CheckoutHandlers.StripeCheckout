@@ -6,6 +6,6 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Templates;
 [DataContract]
 internal sealed class InlineFormResponse
 {
-	[DataMember(Name = "clientSecret")]
-	public string ClientSecret { get; set; }
+    [DataMember(Name = "clientSecret")]
+    public string ClientSecret { get; set; }
 }
