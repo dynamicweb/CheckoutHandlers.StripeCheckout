@@ -2,6 +2,6 @@
 
 internal enum ErrorType
 {
-    Undefined,
-    SavedCard
+	Undefined,
+	SavedCard
 }

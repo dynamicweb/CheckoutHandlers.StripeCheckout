@@ -6,6 +6,6 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentInt
 [DataContract]
 internal sealed class PaymentIntents
 {
-    [DataMember(Name = "data")]
-    public IEnumerable<PaymentIntent> Data { get; set; }
+	[DataMember(Name = "data")]
+	public IEnumerable<PaymentIntent> Data { get; set; }
 }

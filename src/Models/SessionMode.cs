@@ -3,8 +3,11 @@
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models;
 
 [DataContract]
-internal sealed class StripeErrorResponse
+internal enum SessionMode
 {
-    [DataMember(Name = "error")]
-    public StripeError Error { get; set; }
+	[EnumMember(Value = "setup")]
+	Setup,
+
+	[EnumMember(Value = "payment")]
+	Payment
 }
