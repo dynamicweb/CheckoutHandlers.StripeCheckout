@@ -937,7 +937,7 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
         try
         {
             var logoPath = MerchantLogo;
-            if (!MerchantLogo.StartsWith("/Files/")) 
+            if (!MerchantLogo.StartsWith("/Files/", StringComparison.OrdinalIgnoreCase)) 
             {
                 logoPath = string.Format("/Files/{0}", MerchantLogo);
             }
