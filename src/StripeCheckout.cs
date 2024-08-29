@@ -941,7 +941,7 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
                 ["publishablekey"] = TestMode ? TestPublishableKey : LivePublishableKey,
                 ["language"] = Language,
                 ["name"] = MerchantName,
-                ["image"] = string.Format("/Files/{0}", MerchantLogo),
+                ["image"] = MerchantLogo,
                 ["description"] = string.Format("Order: {0}", order.Id),
                 ["currency"] = order.CurrencyCode,
                 ["amount"] = order.Price.PricePIP.ToString(),
