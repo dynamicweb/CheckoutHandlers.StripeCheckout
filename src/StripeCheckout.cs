@@ -936,12 +936,17 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
     {
         try
         {
+            var logoPath = MerchantLogo;
+            if (!MerchantLogo.StartsWith("/Files/", StringComparison.OrdinalIgnoreCase)) 
+            {
+                logoPath = string.Format("/Files/{0}", MerchantLogo);
+            }
             var formValues = new Dictionary<string, string>
             {
                 ["publishablekey"] = TestMode ? TestPublishableKey : LivePublishableKey,
                 ["language"] = Language,
                 ["name"] = MerchantName,
-                ["image"] = string.Format("/Files/{0}", MerchantLogo),
+                ["image"] = logoPath,
                 ["description"] = string.Format("Order: {0}", order.Id),
                 ["currency"] = order.CurrencyCode,
                 ["amount"] = order.Price.PricePIP.ToString(),
