@@ -9,15 +9,7 @@ using System.Threading.Tasks;
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
 
 internal static class RequestHelper
-{
-    public static async Task<string> ReadInputStream()
-    {
-        using var receiveStream = Context.Current.Request.InputStream;
-        using var readStream = new StreamReader(receiveStream, Encoding.UTF8);
-
-        return await readStream.ReadToEndAsync().ConfigureAwait(false);
-    }
-
+{ 
     public static bool IsAjaxRequest()
     {
         return "application/json".Equals(Context.Current.Request.Headers["Content-Type"], StringComparison.OrdinalIgnoreCase);

@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<VersionPrefix>10.6.0</VersionPrefix>
+		<VersionPrefix>10.7.0</VersionPrefix>
 		<AssemblyVersion>1.0.0.0</AssemblyVersion>
 		<Title>Stripe Checkout 2.0</Title>
 		<Description>Stripe Checkout handler</Description>
@@ -34,9 +34,9 @@
 	  <EmbeddedResource Include="Updates\Post_inline.cshtml" />
 	</ItemGroup>
 	<ItemGroup>
-		<PackageReference Include="Dynamicweb" Version="10.6.9" />
-		<PackageReference Include="Dynamicweb.Core" Version="10.6.9" />
-		<PackageReference Include="Dynamicweb.Ecommerce" Version="10.6.9" />
+		<PackageReference Include="Dynamicweb" Version="10.7.3" />
+		<PackageReference Include="Dynamicweb.Core" Version="10.7.3" />
+		<PackageReference Include="Dynamicweb.Ecommerce" Version="10.7.3" />
 		<PackageReference Include="Microsoft.CSharp" Version="4.7.0" />
 		<PackageReference Include="Microsoft.SourceLink.GitHub" Version="1.1.1" PrivateAssets="All" />
 	</ItemGroup>

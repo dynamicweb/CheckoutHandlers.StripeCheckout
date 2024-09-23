@@ -3,7 +3,7 @@ using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Error;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Refund;
-using Dynamicweb.Ecommerce.ChecskoutHandlers.StripeCheckout.Models.Customer;
+using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Customer;
 using Dynamicweb.Ecommerce.Orders;
 using System;
 using System.Collections.Generic;
@@ -440,14 +440,14 @@ internal sealed class StripeService
             ["currency"] = order.CurrencyCode,
         };
 
-        SetPaymentMethodParameters();
+        SetPaymentMethodParameters(parameters, options);
 
         if (options.Mode is SessionMode.Payment)
         {
             parameters["payment_intent_data[capture_method]"] = options.AutomaticCapture ? "automatic_async" : "manual";
             parameters["payment_intent_data[description]"] = order.Id;
 
-            SetProductsParameters();
+            SetProductsParameters(parameters, order);
             SetShippingParameters(order, parameters, "payment_intent_data[shipping]");
         }
         else
@@ -465,33 +465,33 @@ internal sealed class StripeService
         }
 
         return CreateSession(idempotencyKey, parameters);
+    }
 
-        void SetProductsParameters()
+    private void SetProductsParameters(Dictionary<string, object> parameters, Order order)
+    {
+        string itemParameter = $"line_items[0]";
+        parameters[$"{itemParameter}[quantity]"] = 1;
+
+        string priceParameter = $"{itemParameter}[price_data]";
+        parameters[$"{priceParameter}[currency]"] = order.CurrencyCode;
+        parameters[$"{priceParameter}[unit_amount]"] = order.Price.PricePIP;
+
+        string productParameter = $"{priceParameter}[product_data]";
+        parameters[$"{productParameter}[name]"] = "Total amount";
+    }
+
+    private void SetPaymentMethodParameters(Dictionary<string, object> parameters, SessionCreateOptions options)
+    {
+        if (options.SavePaymentMethod && options.Mode is SessionMode.Payment)
         {
-            string itemParameter = $"line_items[0]";
-            parameters[$"{itemParameter}[quantity]"] = 1;
-
-            string priceParameter = $"{itemParameter}[price_data]";
-            parameters[$"{priceParameter}[currency]"] = order.CurrencyCode;
-            parameters[$"{priceParameter}[unit_amount]"] = order.Price.PricePIP;
-
-            string productParameter = $"{priceParameter}[product_data]";
-            parameters[$"{productParameter}[name]"] = "Total amount";
+            string paymentOptionsParameter = "payment_method_options";
+            parameters[$"{paymentOptionsParameter}[card][setup_future_usage]"] = "off_session";
         }
 
-        void SetPaymentMethodParameters()
+        if (options.PaymentMethods?.Any() is true && !options.AutomaticPaymentMethods)
         {
-            if (options.SavePaymentMethod && options.Mode is SessionMode.Payment)
-            {
-                string paymentOptionsParameter = "payment_method_options";
-                parameters[$"{paymentOptionsParameter}[card][setup_future_usage]"] = "off_session";
-            }
-
-            if (options.PaymentMethods?.Any() is true && !options.AutomaticPaymentMethods)
-            {
-                for (int i = 0; i < options.PaymentMethods.Count(); i++)
-                    parameters[$"payment_method_types[{i}]"] = options.PaymentMethods.ElementAt(i);
-            }
+            for (int i = 0; i < options.PaymentMethods.Count(); i++)
+                parameters[$"payment_method_types[{i}]"] = options.PaymentMethods.ElementAt(i);
         }
     }
 

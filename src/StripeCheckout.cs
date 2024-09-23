@@ -27,14 +27,15 @@ namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
 /// </summary>
 [
     AddInName("Stripe checkout"),
-    AddInDescription("Checkout handler for Stripe 1.1")
+    AddInDescription("Checkout handler for Stripe 2.0")
 ]
-public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IParameterVisibility, IRecurring, IRemotePartialFinalOnlyCapture, ICancelOrder, IFullReturn, IPartialReturn
+public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IRecurring, IRemotePartialFinalOnlyCapture, ICancelOrder, IFullReturn, IPartialReturn
 {
     private const string PostTemplateFolder = "eCom7/CheckoutHandler/Stripe/Post";
     private const string ErrorTemplateFolder = "eCom7/CheckoutHandler/Stripe/Error";
     private string errorTemplate;
     private string postTemplate;
+    private PostModes PostMode { get; set; } = PostModes.Auto;
 
     #region Addin parameters
 
@@ -75,21 +76,31 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IP
 
     [AddInParameter("Capture now"), AddInParameterEditor(typeof(YesNoParameterEditor), "infoText=Auto-captures a payment when it is authorized. Please note that it is illegal in some countries to capture payment before shipping any physical goods.;")]
     public bool CaptureNow { get; set; }
-
-    [AddInParameter("Render inline form"), AddInParameterEditor(typeof(YesNoParameterEditor), "infoText=Makes it possible to render this form inline in the checkout flow. Use the Ecom:Cart.PaymentInlineForm tag in the cart flow to render the form inline.;")]
-    public bool RenderInline { get; set; }
+     
+    // <summary>
+    /// Gets or sets post mode indicates how user will be redirected to Stripe service
+    /// </summary>
+    [AddInParameter("Post mode"), AddInParameterEditor(typeof(DropDownParameterEditor), "NewGUI=true; none=false; SortBy=Value; infoText=Manages the post mode. You can either do a direct redirect to Stripe payment form, either render the template on separate page or as inline form template.;")]
+    public string PostModeSelection
+    {
+        get => PostMode.ToString();
+        set
+        {            
+            PostMode = value switch
+            {
+                nameof(PostModes.Auto) => PostModes.Auto,
+                nameof(PostModes.Template) => PostModes.Template,
+                nameof(PostModes.InlineTemplate) => PostModes.InlineTemplate,
+                _ => throw new NotSupportedException($"Unknown value of post mode was used. The value: {value}")
+            };
+        }
+    }
 
     [AddInParameter("Test mode"), AddInParameterEditor(typeof(YesNoParameterEditor), "infoText=When checked, test credentials are used – when unchecked, live credentials are used.;")]
     public bool TestMode { get; set; }
 
     [AddInParameter("Save cards"), AddInParameterEditor(typeof(YesNoParameterEditor), "infoText=Allow Stripe to save payment methods data to use them in Dynamicweb (as saved cards). Works only for Card (Stripe payment method). You need to activate this setting to create recurring orders.")]
     public bool SaveCards { get; set; } = true;
-
-    [AddInParameter("Automatic payment methods"), AddInParameterEditor(typeof(YesNoParameterEditor), "ReloadOnChange=true;infoText=Allow Stripe to show payment methods on the checkout form based only on your Stripe account settings.")]
-    public bool AutomaticPaymentMethods { get; set; }
-
-    [AddInParameter("Payment methods"), AddInParameterEditor(typeof(CheckListParameterEditor), "NewGUI=true; none=false; SortBy=Value; infoText=When 'Automatic payment methods' is unchecked, only selected methods will be shown in the Stripe checkout form. Note: the methods should be activated on Stripe account first.")]
-    public string PaymentMethods { get; set; }
 
     #endregion
 
@@ -117,8 +128,13 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IP
     {
         LogEvent(order, "Checkout started");
 
-        var formTemplate = new Template(TemplateHelper.GetTemplatePath(PostTemplate, PostTemplateFolder));
-        return RenderPaymentForm(order, formTemplate);
+        if (PostMode is not PostModes.Auto)
+        {
+            var formTemplate = new Template(TemplateHelper.GetTemplatePath(PostTemplate, PostTemplateFolder));
+            return RenderPaymentForm(order, formTemplate);
+        }
+
+        return CreateSession(order, order.IsRecurringOrderTemplate);
     }
 
     /// <summary>
@@ -168,18 +184,11 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IP
             if (recurring && !SaveCards)
                 throw new Exception("Please activate 'Save cards' in Stripe settings to create the recurring order.");
 
-            if (!AutomaticPaymentMethods && string.IsNullOrEmpty(PaymentMethods))
-                throw new Exception("Please select payment methods or activate 'Automatic payment methods' setting to let Stripe define them automatically.");
-
             var cardSettings = new BasePaymentCardSettings(order);
             string action = recurring ? "CompleteSetup" : "Complete";
 
             PaymentCardToken savedCard = Services.PaymentCard.GetByUserId(order.CustomerAccessUserId).FirstOrDefault(card => !string.IsNullOrEmpty(card.Token));
-            string[] cardToken = savedCard?.Token?.Split('|');
-
-            IEnumerable<string> paymentMethods = recurring
-                ? PaymentMethodsForFutureUsage
-                : PaymentMethods?.Split(',', StringSplitOptions.RemoveEmptyEntries);
+            string[] cardToken = savedCard?.Token?.Split('|');           
 
             var service = new StripeService(GetSecretKey());
             string idempotencyKey = IdempotencyKeyHelper.GetKey(ApiCommand.CreateSession, MerchantName, order.Id);
@@ -191,13 +200,13 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IP
                 CustomerId = cardToken?.ElementAtOrDefault(0),
                 Language = Language,
                 Mode = recurring ? SessionMode.Setup : SessionMode.Payment,
-                EmbeddedForm = RenderInline,
-                AutomaticPaymentMethods = recurring ? false : AutomaticPaymentMethods,
-                PaymentMethods = paymentMethods,
+                EmbeddedForm = PostMode is PostModes.InlineTemplate,
+                AutomaticPaymentMethods = recurring ? false : true,
+                PaymentMethods = recurring ? PaymentMethodsForFutureUsage : null,
                 CompleteUrl = $"{GetBaseUrl(order)}&Action={action}&CardTokenName={cardSettings.Name}&session_id={{CHECKOUT_SESSION_ID}}"
             });
 
-            if (!RenderInline)
+            if (PostMode is not PostModes.InlineTemplate)
                 return new RedirectOutputResult { RedirectUrl = session.Url };
 
             var response = new InlineFormResponse { ClientSecret = session.ClientSecret };
@@ -649,7 +658,7 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IP
         {
             return parameterName switch
             {
-                _ when GetPropertyLabel(nameof(Language)).Equals(parameterName, StringComparison.OrdinalIgnoreCase) =>
+                _ when CompareNames(nameof(Language), parameterName) =>
                 [
                     new("Auto", "auto"),
                     new("Chinese", "zh"),
@@ -660,12 +669,11 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IP
                     new("Italian", "it"),
                     new("Spanish", "es")
                 ],
-                _ when GetPropertyLabel(nameof(PaymentMethods)).Equals(parameterName, StringComparison.OrdinalIgnoreCase) =>
+                _ when CompareNames(nameof(PostModeSelection), parameterName) =>
                 [
-                    new("Card", "card"),
-                    new("Klarna", "klarna"),
-                    new("PayPal", "paypal"),
-                    new("Mobilepay", "mobilepay")
+                    new("Auto", nameof(PostModes.Auto)) { Hint = "Makes a direct redirect to Stripe payment form" },
+                    new("Template", nameof(PostModes.Template)) { Hint = "Renders the selected template before redirecting to Stripe payment form" },
+                    new("Inline template", nameof(PostModes.InlineTemplate)) { Hint = "Renders the form inline in the checkout flow. Use the Ecom:Cart.PaymentInlineForm tag in the cart flow to render the form inline" }
                 ],
                 _ => throw new ArgumentException(string.Format("Unknown dropdown name: '{0}'", parameterName))
             };
@@ -675,26 +683,8 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IP
             LogError(null, ex, "Unhandled exception with message: {0}", ex.Message);
             return null;
         }
-    }
 
-    #endregion
-
-    #region IParameterVisibility
-
-    /// <summary>
-    /// Gets hidden parameters list based on behavior
-    /// </summary>
-    /// <param name="parameterName">Parameter name</param>
-    /// <param name="parameterValue">Parameter value</param>
-    /// <returns></returns>
-    public IEnumerable<string> GetHiddenParameterNames(string parameterName, object parameterValue)
-    {
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        if (GetPropertyLabel(nameof(AutomaticPaymentMethods)).Equals(parameterName, StringComparison.OrdinalIgnoreCase) && parameterValue is true)
-            result.Add(GetPropertyLabel(nameof(PaymentMethods)));
-
-        return result;
+        bool CompareNames(string propertyName, string parameterName) => GetPropertyLabel(propertyName).Equals(parameterName, StringComparison.OrdinalIgnoreCase);
     }
 
     #endregion
@@ -859,7 +849,7 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IP
 
     public override string RenderInlineForm(Order order)
     {
-        if (RenderInline)
+        if (PostMode is PostModes.InlineTemplate)
         {
             LogEvent(order, "Render inline form");
             var formTemplate = new Template(TemplateHelper.GetTemplatePath(PostTemplate, PostTemplateFolder));
@@ -882,8 +872,8 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IP
             var cardSettings = new BasePaymentCardSettings(order);
 
             var logoPath = MerchantLogo;
-            if (!MerchantLogo.StartsWith("/Files/", StringComparison.OrdinalIgnoreCase))            
-                logoPath = string.Format("/Files/{0}", MerchantLogo);            
+            if (!MerchantLogo.StartsWith("/Files/", StringComparison.OrdinalIgnoreCase))
+                logoPath = string.Format("/Files/{0}", MerchantLogo);
 
             var formValues = new Dictionary<string, string>
             {
