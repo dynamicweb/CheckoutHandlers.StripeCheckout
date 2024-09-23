@@ -201,7 +201,7 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
                 Language = Language,
                 Mode = recurring ? SessionMode.Setup : SessionMode.Payment,
                 EmbeddedForm = PostMode is PostModes.InlineTemplate,
-                AutomaticPaymentMethods = recurring ? false : true,
+                AutomaticPaymentMethods = !recurring,
                 PaymentMethods = recurring ? PaymentMethodsForFutureUsage : null,
                 CompleteUrl = $"{GetBaseUrl(order)}&Action={action}&CardTokenName={cardSettings.Name}&session_id={{CHECKOUT_SESSION_ID}}"
             });
