@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
+namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Service;
 
 internal sealed class CommandConfiguration
 {

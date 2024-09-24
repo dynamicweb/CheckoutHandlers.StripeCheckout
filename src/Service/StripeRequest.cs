@@ -1,5 +1,5 @@
 ﻿using Dynamicweb.Core;
-using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models;
+using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Error;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -7,7 +7,7 @@ using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 
-namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
+namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Service;
 
 /// <summary>
 /// Send request to Stripe and get response operations.
@@ -32,6 +32,7 @@ internal static class StripeRequest
                 {
                     //POST
                     ApiCommand.CreateCustomer or
+                    ApiCommand.UpdateCustomer or
                     ApiCommand.CreatePaymentIntent or
                     ApiCommand.CapturePaymentIntent or
                     ApiCommand.CancelPaymentIntent or
@@ -40,14 +41,16 @@ internal static class StripeRequest
                     ApiCommand.CreatePaymentMethod or
                     ApiCommand.AttachPaymentMethod or
                     ApiCommand.DetachPaymentMethod or
-                    ApiCommand.CreateRefund => client.PostAsync(apiCommand, new FormUrlEncodedContent(GetParameters(configuration.Parameters))),
+                    ApiCommand.CreateRefund or
+                    ApiCommand.CreateSession => client.PostAsync(apiCommand, new FormUrlEncodedContent(GetParameters(configuration.Parameters))),
                     //GET
                     ApiCommand.GetAllPaymentIntents or
                     ApiCommand.GetPaymentIntent or
                     ApiCommand.GetSetupIntent or
                     ApiCommand.GetPaymentMethod or
                     ApiCommand.GetCustomerPaymentMethod or
-                    ApiCommand.GetCustomer => client.GetAsync(apiCommand),
+                    ApiCommand.GetCustomer or
+                    ApiCommand.GetSession => client.GetAsync(apiCommand),
                     //DELETE
                     ApiCommand.DeleteCustomer => client.DeleteAsync(apiCommand),
                     _ => throw new NotSupportedException($"Unknown operation was used. The operation code: {configuration.CommandType}.")
@@ -92,7 +95,9 @@ internal static class StripeRequest
             if (parameters?.Count is null or 0)
                 return new();
 
-            return parameters.ToDictionary(x => x.Key, y => parameters[y.Key]?.ToString() ?? string.Empty, StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, string> convertedParameters = parameters.ToDictionary(x => x.Key, y => parameters[y.Key]?.ToString() ?? string.Empty);
+
+            return convertedParameters.Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && !string.IsNullOrWhiteSpace(pair.Value)).ToDictionary(StringComparer.OrdinalIgnoreCase);
         }
     }
 
@@ -101,7 +106,7 @@ internal static class StripeRequest
         return command switch
         {
             ApiCommand.CreateCustomer => GetCommandLink("customers"),
-            ApiCommand.GetCustomer => GetCommandLink($"customers/{operatorId}"),
+            ApiCommand.GetCustomer or ApiCommand.UpdateCustomer => GetCommandLink($"customers/{operatorId}"),
             ApiCommand.DeleteCustomer => GetCommandLink($"customers/{operatorId}"),
             ApiCommand.CreatePaymentIntent or ApiCommand.GetAllPaymentIntents => GetCommandLink("payment_intents"),
             ApiCommand.GetPaymentIntent => GetCommandLink($"payment_intents/{operatorId}"),
@@ -116,6 +121,8 @@ internal static class StripeRequest
             ApiCommand.AttachPaymentMethod => GetCommandLink($"payment_methods/{operatorId}/attach"),
             ApiCommand.DetachPaymentMethod => GetCommandLink($"payment_methods/{operatorId}/detach"),
             ApiCommand.CreateRefund => GetCommandLink("refunds"),
+            ApiCommand.CreateSession => GetCommandLink("checkout/sessions"),
+            ApiCommand.GetSession => GetCommandLink($"checkout/sessions/{operatorId}"),
             _ => throw new NotSupportedException($"The api command is not supported. Command: {command}")
         };
 

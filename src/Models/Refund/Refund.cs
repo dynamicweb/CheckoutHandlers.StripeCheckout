@@ -25,7 +25,7 @@ internal sealed class Refund
     public string PaymentIntentId { get; set; }
 
     [DataMember(Name = "status")]
-    public string Status { get; set; }
+    public RefundStatus Status { get; set; }
 
     [DataMember(Name = "balance_transaction")]
     public string BalanceTransaction { get; set; }

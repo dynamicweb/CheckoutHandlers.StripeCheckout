@@ -1,6 +1,6 @@
 ﻿using System.Runtime.Serialization;
 
-namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models;
+namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Error;
 
 //See full object description in the documentation. Link: https://docs.stripe.com/api/errors
 [DataContract]

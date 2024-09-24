@@ -1,4 +1,5 @@
-﻿using System.Runtime.Serialization;
+﻿using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Error;
+using System.Runtime.Serialization;
 
 namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
 

@@ -1,6 +1,6 @@
 ﻿using System.Runtime.Serialization;
 
-namespace Dynamicweb.Ecommerce.ChecskoutHandlers.StripeCheckout.Models.Customer;
+namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Customer;
 
 //See full object description in the documentation. Link: https://docs.stripe.com/api/customers/object
 [DataContract]

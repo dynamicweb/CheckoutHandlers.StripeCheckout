@@ -1,12 +1,16 @@
 ﻿using Dynamicweb.Core;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models;
+using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Error;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Refund;
-using Dynamicweb.Ecommerce.ChecskoutHandlers.StripeCheckout.Models.Customer;
+using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Customer;
+using Dynamicweb.Ecommerce.Orders;
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
-namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
+namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Service;
 
 /// <summary>
 /// The service to interact with Stripe API
@@ -119,6 +123,24 @@ internal sealed class StripeService
     }
 
     /// <summary>
+    /// Updates a customer
+    /// </summary>
+    /// <param name="customerId">Customer</param>
+    /// <param name="parameters">Parameters</param>
+    /// <returns></returns>
+    public Customer UpdateCustomer(string customerId, Dictionary<string, object> parameters)
+    {
+        string response = StripeRequest.SendRequest(SecretKey, new()
+        {
+            CommandType = ApiCommand.UpdateCustomer,
+            OperatorId = customerId,
+            Parameters = parameters
+        });
+
+        return Converter.Deserialize<Customer>(response);
+    }
+
+    /// <summary>
     /// Creates a PaymentIntent object. A PaymentIntent guides you through the process of collecting a payment from your customer.
     /// POST /payment_intents
     /// </summary>
@@ -134,6 +156,32 @@ internal sealed class StripeService
         });
 
         return Converter.Deserialize<PaymentIntent>(response);
+    }
+
+    /// <summary>
+    /// Creates a PaymentIntent based on saved card data and order.
+    /// POST /payment_intents
+    /// </summary>
+    /// <param name="idempotencyKey">Idempotency key</param>
+    /// <param name="order">The order</param>
+    /// <param name="options">Creation options</param>
+    public PaymentIntent CreateOffPaymentIntent(string idempotencyKey, Order order, PaymentIntentCreateOptions options)
+    {
+        var parameters = new Dictionary<string, object>
+        {
+            { "amount", order.Price.PricePIP },
+            { "currency", order.CurrencyCode },
+            { "description", order.Id },
+            { "customer",  options.CustomerId },
+            { "capture_method", options.AutomaticCapture ? "automatic_async" : "manual" },
+            { "confirm", true },
+            { "payment_method", options.PaymentMethodId },
+            { "off_session", true }
+        };
+
+        SetShippingParameters(order, parameters, "shipping");
+
+        return CreatePaymentIntent(idempotencyKey, parameters);
     }
 
     /// <summary>
@@ -194,7 +242,30 @@ internal sealed class StripeService
 
         return Converter.Deserialize<SetupIntent>(response);
     }
-   
+
+
+    /// <summary>
+    /// Creates a SetupIntent based on saved card data.
+    /// POST /setup_intents
+    /// </summary>
+    /// <param name="idempotencyKey">Idempotency key</param>
+    /// <param name="order">The order</param>
+    /// <param name="options">Creation options</param>
+    public SetupIntent CreateOffSetupIntent(string idempotencyKey, PaymentIntentCreateOptions options)
+    {
+        var parameters = new Dictionary<string, object>()
+        {
+            ["confirm"] = true,
+            ["customer"] = options.CustomerId,
+            ["payment_method"] = options.PaymentMethodId,
+            ["usage"] = "off_session",
+            ["automatic_payment_methods[enabled]"] = true,
+            ["automatic_payment_methods[allow_redirects]"] = "never",
+        };
+
+        return CreateSetupIntent(idempotencyKey, parameters);
+    }
+
     /// <summary>
     /// Gets a SetupIntent object. Retrieves the details of a SetupIntent that has previously been created.
     /// GET /setup_intents/{operatorId}
@@ -263,7 +334,7 @@ internal sealed class StripeService
     }
 
     /// <summary>
-    /// Retrieves a PaymentMethod object attached to the StripeAccount. To retrieve a payment method attached to a Customer, use <see cref="StripeService.GetPaymentMethod(string, string)"/>
+    /// Retrieves a PaymentMethod object attached to the StripeAccount. To retrieve a payment method attached to a Customer, use <see cref="GetPaymentMethod(string, string)"/>
     /// POST /payment_methods/{operatorId}
     /// </summary>
     /// <param name="paymentMethodId">Payment method id</param>
@@ -333,5 +404,130 @@ internal sealed class StripeService
         });
 
         return Converter.Deserialize<Refund>(response);
+    }
+
+    /// <summary>
+    /// Creates new Session for checkout. 
+    /// POST /checkout/sessions
+    /// </summary>
+    /// <param name="parameters">Parameters</param>
+    public Session CreateSession(string idempotencyKey, Dictionary<string, object> parameters)
+    {
+        string response = StripeRequest.SendRequest(SecretKey, new()
+        {
+            CommandType = ApiCommand.CreateSession,
+            Parameters = parameters,
+            IdempotencyKey = idempotencyKey
+        });
+
+        return Converter.Deserialize<Session>(response);
+    }
+
+    /// <summary>
+    /// Creates new Session for checkout. It uses the Order data to form the parameters. 
+    /// POST /checkout/sessions
+    /// </summary>
+    /// <param name="order">Order</param>
+    /// <param name="options">Create options</param>
+    public Session CreateSession(string idempotencyKey, Order order, SessionCreateOptions options)
+    {
+        var parameters = new Dictionary<string, object>
+        {
+            ["mode"] = options.Mode is SessionMode.Setup ? "setup" : "payment",
+            ["locale"] = options.Language,
+            ["client_reference_id"] = order.AutoId,
+            [options.EmbeddedForm ? "return_url" : "success_url"] = options.CompleteUrl,
+            ["currency"] = order.CurrencyCode,
+        };
+
+        SetPaymentMethodParameters(parameters, options);
+
+        if (options.Mode is SessionMode.Payment)
+        {
+            parameters["payment_intent_data[capture_method]"] = options.AutomaticCapture ? "automatic_async" : "manual";
+            parameters["payment_intent_data[description]"] = order.Id;
+
+            SetProductsParameters(parameters, order);
+            SetShippingParameters(order, parameters, "payment_intent_data[shipping]");
+        }
+        else
+            parameters["setup_intent_data[description]"] = $"Order id: {order.Id}. Total amount: {order.Price.PriceWithVATFormatted}";
+
+        if (options.EmbeddedForm)
+            parameters["ui_mode"] = "embedded";
+
+        if (!string.IsNullOrWhiteSpace(options.CustomerId))
+            parameters["customer"] = options.CustomerId;
+        else
+        {
+            parameters["customer_email"] = order.CustomerEmail;
+            parameters["customer_creation"] = options.SavePaymentMethod ? "always" : "if_required";
+        }
+
+        return CreateSession(idempotencyKey, parameters);
+    }
+
+    private void SetProductsParameters(Dictionary<string, object> parameters, Order order)
+    {
+        string itemParameter = $"line_items[0]";
+        parameters[$"{itemParameter}[quantity]"] = 1;
+
+        string priceParameter = $"{itemParameter}[price_data]";
+        parameters[$"{priceParameter}[currency]"] = order.CurrencyCode;
+        parameters[$"{priceParameter}[unit_amount]"] = order.Price.PricePIP;
+
+        string productParameter = $"{priceParameter}[product_data]";
+        parameters[$"{productParameter}[name]"] = "Total amount";
+    }
+
+    private void SetPaymentMethodParameters(Dictionary<string, object> parameters, SessionCreateOptions options)
+    {
+        if (options.SavePaymentMethod && options.Mode is SessionMode.Payment)
+        {
+            string paymentOptionsParameter = "payment_method_options";
+            parameters[$"{paymentOptionsParameter}[card][setup_future_usage]"] = "off_session";
+        }
+
+        if (options.PaymentMethods?.Any() is true && !options.AutomaticPaymentMethods)
+        {
+            for (int i = 0; i < options.PaymentMethods.Count(); i++)
+                parameters[$"payment_method_types[{i}]"] = options.PaymentMethods.ElementAt(i);
+        }
+    }
+
+    /// <summary>
+    /// Gets the session by session id.
+    /// GET /checkout/sessions/{operatorId}
+    /// </summary>
+    /// <param name="parameters">Parameters</param>
+    public Session GetSession(string sessionId)
+    {
+        string response = StripeRequest.SendRequest(SecretKey, new()
+        {
+            CommandType = ApiCommand.GetSession,
+            OperatorId = sessionId
+        });
+
+        return Converter.Deserialize<Session>(response);
+    }
+
+    private void SetShippingParameters(Order order, Dictionary<string, object> parameters, string shippingParameter)
+    {
+        //name is required parameter, so we should fill it by something
+        string recipientName = !string.IsNullOrWhiteSpace(order.DeliveryName) ? order.DeliveryName : order.DeliveryMiddleName;
+        if (string.IsNullOrWhiteSpace(shippingParameter))
+            recipientName = "Recipient name";
+
+        parameters[$"{shippingParameter}[name]"] = recipientName;
+        parameters[$"{shippingParameter}[phone]"] = order.DeliveryPhone;
+
+        string addressParameter = $"{shippingParameter}[address]";
+        //line 1 is required parameter
+        parameters[$"{addressParameter}[line1]"] = !string.IsNullOrWhiteSpace(order.DeliveryAddress) ? order.DeliveryAddress : order.DeliveryAddress2;
+        parameters[$"{addressParameter}[line2]"] = order.DeliveryAddress2;
+        parameters[$"{addressParameter}[state]"] = order.DeliveryRegion;
+        parameters[$"{addressParameter}[city]"] = order.DeliveryCity;
+        parameters[$"{addressParameter}[country]"] = order.DeliveryCountryCode;
+        parameters[$"{addressParameter}[postal_code]"] = order.DeliveryZip;
     }
 }

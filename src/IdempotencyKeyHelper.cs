@@ -1,4 +1,6 @@
-﻿namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
+﻿using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Service;
+
+namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
 
 internal static class IdempotencyKeyHelper
 {
@@ -10,6 +12,7 @@ internal static class IdempotencyKeyHelper
             ApiCommand.CreatePaymentIntent => GetKey(),
             ApiCommand.CreatePaymentMethod => GetKey() + "PM",
             ApiCommand.CreateSetupIntent => GetKey() + "SI",
+            ApiCommand.CreateSession => GetKey() + "SE",
             _ => string.Empty
         };
 

@@ -1,6 +1,6 @@
 ﻿using System.Runtime.Serialization;
 
-namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models;
+namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Error;
 
 [DataContract]
 internal enum StripeErrorType

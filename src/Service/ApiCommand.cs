@@ -1,4 +1,4 @@
-﻿namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout;
+﻿namespace Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Service;
 
 internal enum ApiCommand
 {
@@ -19,6 +19,12 @@ internal enum ApiCommand
     /// DELETE /customers/{operatorId}
     /// </summary>
     DeleteCustomer,
+
+    /// <summary>
+    /// Updates the specified customer by setting the values of the parameters passed
+    /// POST /customers/{operatorId}
+    /// </summary>
+    UpdateCustomer,
 
     /// <summary>
     /// Creates a PaymentIntent object. A PaymentIntent guides you through the process of collecting a payment from your customer.
@@ -102,5 +108,17 @@ internal enum ApiCommand
     /// Creates new refund. Refund objects allow you to refund a previously created charge that isn’t refunded yet. Funds are refunded to the credit or debit card that’s initially charged.
     /// POST /refunds
     /// </summary>
-    CreateRefund
+    CreateRefund,
+
+    /// <summary>
+    /// Creates new session.
+    /// POST /checkout/sessions
+    /// </summary>
+    CreateSession,
+
+    /// <summary>
+    /// Gets the session by session id.
+    /// GET /checkout/sessions/{operatorId}
+    /// </summary>
+    GetSession,
 }
