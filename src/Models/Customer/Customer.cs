@@ -32,4 +32,7 @@ internal sealed class Customer
 
     [DataMember(Name = "livemode")]
     public bool Livemode { get; set; }
+
+    [DataMember(Name = "deleted")]
+    public bool Deleted { get; set; }
 }

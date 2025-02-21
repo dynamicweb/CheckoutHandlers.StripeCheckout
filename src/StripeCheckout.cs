@@ -1,6 +1,7 @@
 ﻿using Dynamicweb.Core;
 using Dynamicweb.Ecommerce.Cart;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models;
+using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Customer;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentMethod;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Refund;
@@ -76,7 +77,7 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
 
     [AddInParameter("Capture now"), AddInParameterEditor(typeof(YesNoParameterEditor), "infoText=Auto-captures a payment when it is authorized. Please note that it is illegal in some countries to capture payment before shipping any physical goods.;")]
     public bool CaptureNow { get; set; }
-     
+
     // <summary>
     /// Gets or sets post mode indicates how user will be redirected to Stripe service
     /// </summary>
@@ -85,7 +86,7 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
     {
         get => PostMode.ToString();
         set
-        {            
+        {
             PostMode = value switch
             {
                 nameof(PostModes.Auto) => PostModes.Auto,
@@ -187,17 +188,32 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
             var cardSettings = new BasePaymentCardSettings(order);
             string action = recurring ? "CompleteSetup" : "Complete";
 
-            PaymentCardToken savedCard = Services.PaymentCard.GetByUserId(order.CustomerAccessUserId).FirstOrDefault(card => !string.IsNullOrEmpty(card.Token));
-            string[] cardToken = savedCard?.Token?.Split('|');           
+            PaymentCardToken savedCard = Services.PaymentCard.GetByUserId(order.CustomerAccessUserId)
+                .FirstOrDefault(card => order.PaymentMethodId.Equals(card.PaymentID, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(card.Token));
+            string[] cardToken = savedCard?.Token?.Split('|');
+            string customerId = cardToken?.ElementAtOrDefault(0);
 
             var service = new StripeService(GetSecretKey());
-            string idempotencyKey = IdempotencyKeyHelper.GetKey(ApiCommand.CreateSession, MerchantName, order.Id);
 
+            if (!string.IsNullOrWhiteSpace(customerId))
+            {
+                try
+                {
+                    if (service.GetCustomer(customerId) is not Customer customer || customer.Deleted)
+                        customerId = null;
+                }
+                catch
+                {
+                    customerId = null;
+                }
+            }
+
+            string idempotencyKey = IdempotencyKeyHelper.GetKey(ApiCommand.CreateSession, MerchantName, order.Id);
             Session session = service.CreateSession(idempotencyKey, order, new()
             {
                 AutomaticCapture = CaptureNow,
                 SavePaymentMethod = cardSettings.IsSaveNeeded && SaveCards,
-                CustomerId = cardToken?.ElementAtOrDefault(0),
+                CustomerId = customerId,
                 Language = Language,
                 Mode = recurring ? SessionMode.Setup : SessionMode.Payment,
                 EmbeddedForm = PostMode is PostModes.InlineTemplate,
@@ -467,12 +483,13 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
     private OutputResult UseSavedCardInternal(Order order, bool recurringOrderPayment)
     {
         PaymentCardToken savedCard = Services.PaymentCard.GetById(order.SavedCardId);
-        if (savedCard is null || order.CustomerAccessUserId != savedCard.UserID)
+        if (savedCard is null || order.CustomerAccessUserId != savedCard.UserID || !order.PaymentMethodId.Equals(savedCard.PaymentID, StringComparison.OrdinalIgnoreCase))
             throw new PaymentCardTokenException("Token is incorrect.");
 
         LogEvent(order, "Using saved card({0}) with id: {1}", savedCard.Identifier, savedCard.ID);
 
         var cardTokenKey = CardTokenKey.Parse(savedCard.Token);
+        string errorMessage = null;
         try
         {
             var service = new StripeService(GetSecretKey());
@@ -497,19 +514,25 @@ public class StripeCheckout : CheckoutHandler, ISavedCard, IParameterOptions, IR
                     CustomerId = cardTokenKey.CustomerId,
                     PaymentMethodId = cardTokenKey.PaymentMethodId
                 });
+
                 if (setupIntent.Status is not PaymentIntentStatus.Succeeded)
                     throw new Exception("Something went wrong during setup intent creation using saved card data. Probably the payment method is outdated or wasn't configured for off payments. Try to create recurring order using new card data.");
 
                 return new RedirectOutputResult { RedirectUrl = $"{GetBaseUrl(order)}&Action=CompleteSetup&setup_intent={setupIntent.Id}&SaveCard=false" };
             }
         }
-        catch
+        catch (Exception ex)
         {
+            errorMessage = ex.Message;
             CheckoutDone(order);
         }
 
         if (!order.Complete)
-            throw new Exception("Called create charge, but order is not set complete.");
+        {
+            if (string.IsNullOrWhiteSpace(errorMessage))
+                errorMessage = "Something went wrong during payment operation. Probably the saved card token is outdated. Try to use another saved card or create new.";
+            throw new Exception(errorMessage);
+        }
 
         return PassToCart(order);
     }
