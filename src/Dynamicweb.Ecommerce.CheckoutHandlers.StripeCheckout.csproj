@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
-		<VersionPrefix>10.12.4</VersionPrefix>
+		<VersionPrefix>10.12.1</VersionPrefix>
 		<AssemblyVersion>1.0.0.0</AssemblyVersion>
 		<Title>Stripe Checkout 2.0</Title>
 		<Description>Stripe Checkout handler</Description>
