@@ -1,9 +1,10 @@
-﻿using Dynamicweb.Core;
+﻿using Dynamicweb.Configuration;
+using Dynamicweb.Core;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models;
+using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Customer;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Error;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.PaymentIntent;
 using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Refund;
-using Dynamicweb.Ecommerce.CheckoutHandlers.StripeCheckout.Models.Customer;
 using Dynamicweb.Ecommerce.Orders;
 using System;
 using System.Collections.Generic;
@@ -513,21 +514,27 @@ internal sealed class StripeService
 
     private void SetShippingParameters(Order order, Dictionary<string, object> parameters, string shippingParameter)
     {
+        if (string.IsNullOrWhiteSpace(GetAddress()) && SystemConfiguration.Instance.GetBoolean("/Globalsettings/Ecom/Cart/CopyCustomerFieldsToDelivery"))
+            Services.Carts.CopyCustomerFieldsToDelivery(order);
+
         //name is required parameter, so we should fill it by something
         string recipientName = !string.IsNullOrWhiteSpace(order.DeliveryName) ? order.DeliveryName : order.DeliveryMiddleName;
-        if (string.IsNullOrWhiteSpace(shippingParameter))
-            recipientName = "Recipient name";
+        if (string.IsNullOrWhiteSpace(recipientName))
+            recipientName = "Recipient";
 
         parameters[$"{shippingParameter}[name]"] = recipientName;
         parameters[$"{shippingParameter}[phone]"] = order.DeliveryPhone;
 
         string addressParameter = $"{shippingParameter}[address]";
+
         //line 1 is required parameter
-        parameters[$"{addressParameter}[line1]"] = !string.IsNullOrWhiteSpace(order.DeliveryAddress) ? order.DeliveryAddress : order.DeliveryAddress2;
+        parameters[$"{addressParameter}[line1]"] = GetAddress();
         parameters[$"{addressParameter}[line2]"] = order.DeliveryAddress2;
         parameters[$"{addressParameter}[state]"] = order.DeliveryRegion;
         parameters[$"{addressParameter}[city]"] = order.DeliveryCity;
         parameters[$"{addressParameter}[country]"] = order.DeliveryCountryCode;
         parameters[$"{addressParameter}[postal_code]"] = order.DeliveryZip;
+
+        string GetAddress() => !string.IsNullOrWhiteSpace(order.DeliveryAddress) ? order.DeliveryAddress : order.DeliveryAddress2;
     }
 }
